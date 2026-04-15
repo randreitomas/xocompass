@@ -15,7 +15,7 @@ interface ModelsResponse {
 }
 
 const MODELS_API_URL = apiUrl("/api/models");
-const UPLOAD_API_URL = "https://xocompass-backend.onrender.com/api/upload";
+const UPLOAD_API_URL = apiUrl("/api/upload");
 const RETRAIN_API_URL = apiUrl("/api/retrain");
 
 interface UploadResponse {
