@@ -6,7 +6,7 @@ export const LoginPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/simplified");
+    navigate("/saves");
   };
 
   return (

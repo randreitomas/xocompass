@@ -10,7 +10,7 @@ const groups: Record<string, FaqItem[]> = {
     {
       question: "What data does XoCompass use?",
       answer:
-        "XoCompass uses KJS POS and travel data (e.g. CSV upload via the header). You can re-upload POS data anytime with the “Re-upload POS Data” button. Data is used to build unified time series for demand, revenue, and operations.",
+        "XoCompass uses KJS POS and travel data. You can manage sessions from the header using “View Saves” to switch saves or “Exit Save” to return to login. Data is used to build unified time series for demand, revenue, and operations.",
     },
     {
       question: "How often is the data refreshed?",

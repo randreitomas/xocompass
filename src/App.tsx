@@ -6,12 +6,14 @@ import { AdvancedMetrics } from "./pages/AdvancedMetrics";
 import { TimeSeriesModelLab } from "./pages/TimeSeriesModelLab";
 import { FaqsPage } from "./pages/FaqsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SavesPage } from "./pages/SavesPage";
 
 const App: React.FC = () => {
   return (
     <Routes>
       {/* Login does NOT use MainLayout */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/saves" element={<SavesPage />} />
 
       {/* Default route goes to login */}
       <Route path="/" element={<Navigate to="/login" replace />} />

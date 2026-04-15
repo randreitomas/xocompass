@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -11,11 +11,12 @@ import {
   Legend,
 } from "recharts";
 import { Download } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
 import { ChartContainer } from "../components/ui/ChartContainer";
 import { StatusBadge } from "../components/ui/StatusBadge";
 
-const bookingsForecastData = [
+const fallbackForecastData = [
   { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
   { month: "Feb", actual: 310, predicted: 320, lowerCI: 290, upperCI: 350 },
   { month: "Mar", actual: 340, predicted: 355, lowerCI: 320, upperCI: 390 },
@@ -27,7 +28,126 @@ const bookingsForecastData = [
   { month: "Sep", actual: 375, predicted: 400, lowerCI: 360, upperCI: 435 },
 ];
 
+interface ForecastPoint {
+  month: string;
+  actual: number;
+  predicted: number;
+  lowerCI: number;
+  upperCI: number;
+}
+
+interface DashboardStatsResponse {
+  total_records: number;
+  data_quality_pct: number;
+  revenue_total: number;
+  growth_rate: number;
+  expected_bookings: number;
+  peak_travel_period: string;
+  bookings_forecast: ForecastPoint[];
+}
+
+interface MetricsRouteState {
+  selectedModelId?: number;
+  selectedModelVersion?: string;
+}
+
+const formatCompactRevenue = (value: number) => {
+  const compact = new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+
+  return `₱${compact.toUpperCase()}`;
+};
+
 export const SimplifiedMetrics: React.FC = () => {
+  const location = useLocation();
+  const routeState = (location.state as MetricsRouteState | null) ?? null;
+  const storedModelId = (() => {
+    try {
+      const rawValue = localStorage.getItem("xocompass:selectedModelId");
+      if (!rawValue) return null;
+      const parsed = Number(rawValue);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  })();
+  const storedModelVersion = (() => {
+    try {
+      return localStorage.getItem("xocompass:selectedModelVersion");
+    } catch {
+      return null;
+    }
+  })();
+
+  const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
+  const selectedModelVersion =
+    routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
+
+  const [dashboardStats, setDashboardStats] =
+    useState<DashboardStatsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        setIsLoading(true);
+        setLoadError("");
+
+        const response = await fetch(
+          `https://xocompass-backend.onrender.com/api/dashboard-stats/${selectedModelId}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const data: DashboardStatsResponse = await response.json();
+        setDashboardStats(data);
+      } catch (error) {
+        console.error("Unable to load dashboard stats:", error);
+        setLoadError("Unable to load model dashboard stats.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardStats();
+  }, [selectedModelId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("xocompass:selectedModelId", String(selectedModelId));
+      localStorage.setItem("xocompass:selectedModelVersion", selectedModelVersion);
+    } catch {
+      // Ignore localStorage errors in restricted environments.
+    }
+  }, [selectedModelId, selectedModelVersion]);
+
+  const growthRate = dashboardStats?.growth_rate ?? 15.3;
+  const growthDirection = growthRate >= 0 ? "up" : "down";
+  const growthLabel = `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%`;
+  const chartData =
+    dashboardStats?.bookings_forecast?.length &&
+    dashboardStats.bookings_forecast.length > 0
+      ? dashboardStats.bookings_forecast
+      : fallbackForecastData;
+
+  const expectedBookingsTrendLabel = useMemo(() => {
+    if (!chartData || chartData.length < 2) {
+      return "Baseline forecast available";
+    }
+
+    const first = chartData[0].predicted;
+    const last = chartData[chartData.length - 1].predicted;
+    if (first === 0) return "Forecast trend unavailable";
+
+    const pct = ((last - first) / first) * 100;
+    return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% across forecast window`;
+  }, [chartData]);
+
   return (
     <div className="space-y-8 bg-slate-100 p-6 -m-8 min-h-full">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
@@ -36,8 +156,11 @@ export const SimplifiedMetrics: React.FC = () => {
             Business Analytics Dashboard
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            High-level performance overview for KJS POS and travel demand
-            analytics.
+            High-level performance overview for KJS POS and travel demand analytics.
+            {" "}
+            <span className="font-medium text-slate-700">
+              Model {selectedModelVersion} (ID {selectedModelId})
+            </span>
           </p>
         </div>
 
@@ -47,45 +170,61 @@ export const SimplifiedMetrics: React.FC = () => {
         </button>
       </div>
 
+      {isLoading && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+          Loading dashboard stats from backend...
+        </p>
+      )}
+
+      {loadError && (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+          {loadError} Showing fallback data where needed.
+        </p>
+      )}
+
       <section className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">
             Data Overview
           </h2>
           <span className="text-sm text-slate-500">
-            Snapshot as of Jan 27, 2026
+            Snapshot as of {new Date().toLocaleDateString("en-US")}
           </span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
           <MetricCard
             label="Total Records"
-            value="34,582"
-            helper="Transactions 2023–2025"
-            trendLabel="+2,140 vs last refresh"
+            value={(dashboardStats?.total_records ?? 34582).toLocaleString("en-US")}
+            helper="Transactions in model-ready dataset"
+            trendLabel="Loaded from deployed model stats"
             trendDirection="up"
           />
           <MetricCard
             label="Data Quality"
-            value="96.3%"
+            value={`${(dashboardStats?.data_quality_pct ?? 96.3).toFixed(1)}%`}
             helper="Post-cleaning completeness"
-            trendLabel="+1.1 pts vs last cycle"
+            trendLabel="Latest completeness score"
             trendDirection="up"
             accent="teal"
           />
           <MetricCard
             label="Revenue (₱)"
-            value="38.2M"
+            value={formatCompactRevenue(dashboardStats?.revenue_total ?? 38200000)}
             helper="Total recognized revenue"
-            trendLabel="+15.3% YoY"
-            trendDirection="up"
+            trendLabel={`${growthLabel} YoY`}
+            trendDirection={growthDirection}
           />
           <MetricCard
             label="Growth Rate"
-            value="+15.3%"
+            value={growthLabel}
             helper="Bookings & revenue"
-            trendLabel="Accelerating growth trajectory"
-            trendDirection="up"
+            trendLabel={
+              growthDirection === "up"
+                ? "Accelerating growth trajectory"
+                : "Demand is cooling vs prior period"
+            }
+            trendDirection={growthDirection}
             accent="teal"
           />
         </div>
@@ -96,12 +235,18 @@ export const SimplifiedMetrics: React.FC = () => {
           <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
             Expected Bookings
           </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">2,847</p>
-          <p className="mt-1 text-sm font-medium text-emerald-600">
-            +12.5% vs last quarter
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(dashboardStats?.expected_bookings ?? 2847).toLocaleString("en-US")}
+          </p>
+          <p
+            className={`mt-1 text-sm font-medium ${
+              growthDirection === "up" ? "text-emerald-600" : "text-amber-600"
+            }`}
+          >
+            {expectedBookingsTrendLabel}
           </p>
           <p className="mt-3 text-sm text-slate-500">
-            Conversion uplift from digital campaigns and cross-sell offers.
+            Forecasted bookings from the selected saved model.
           </p>
         </div>
 
@@ -110,15 +255,14 @@ export const SimplifiedMetrics: React.FC = () => {
             Peak Travel Period
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
-            Apr – Jun 2026
+            {dashboardStats?.peak_travel_period ?? "Apr – Jun 2026"}
           </p>
           <p className="mt-1 text-sm text-slate-600">
             Target segment:{" "}
             <span className="font-semibold text-teal-700">Families</span>
           </p>
           <p className="mt-3 text-sm text-slate-500">
-            Highest sensitivity to bundled experiences and early-bird
-            discounts.
+            Peak period detected from the currently selected model run.
           </p>
         </div>
       </section>
@@ -128,7 +272,7 @@ export const SimplifiedMetrics: React.FC = () => {
         description="Forecast comparison for Jan–Sep 2026 with 95% confidence interval."
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={bookingsForecastData} margin={{ left: -20 }}>
+          <LineChart data={chartData} margin={{ left: -20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
             <XAxis
               dataKey="month"
@@ -152,15 +296,17 @@ export const SimplifiedMetrics: React.FC = () => {
             <Area
               type="monotone"
               dataKey="upperCI"
+              name="Upper CI"
               stroke="none"
-              fill="rgba(45, 212, 191, 0.15)"
+              fill="rgba(107, 114, 128, 0.25)"
               activeDot={false}
             />
             <Area
               type="monotone"
               dataKey="lowerCI"
+              name="Lower CI"
               stroke="none"
-              fill="rgba(15, 118, 110, 0.15)"
+              fill="#FFFFFF"
               activeDot={false}
             />
             <Line

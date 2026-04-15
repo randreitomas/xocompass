@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -11,20 +11,146 @@ import {
   Bar,
 } from "recharts";
 import { Download } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
 
-const residualsData = Array.from({ length: 30 }).map((_, i) => ({
-  fitted: 100 + i * 3 + (Math.random() - 0.5) * 15,
-  residual: (Math.random() - 0.5) * 20,
-}));
+interface ModelParams {
+  order: number[];
+  seasonal_order: number[];
+  exogenous_features: string[];
+}
 
-const acfPacfData = Array.from({ length: 12 }).map((_, i) => ({
-  lag: i + 1,
-  acf: Math.max(-0.4, Math.min(0.9 - i * 0.06 + (Math.random() - 0.5) * 0.1, 0.9)),
-  pacf: Math.max(-0.4, Math.min(0.8 - i * 0.05 + (Math.random() - 0.5) * 0.1, 0.8)),
-}));
+interface Statistics {
+  rmse: number;
+  mae: number;
+  wmape: number;
+}
+
+interface StatisticalTests {
+  adf_stat: number;
+  adf_pvalue: number;
+  adf_conclusion: string;
+  ljungbox_stat: number;
+  ljungbox_pvalue: number;
+  ljungbox_conclusion: string;
+  jarquebera_stat: number;
+  jarquebera_pvalue: number;
+  jarquebera_conclusion: string;
+}
+
+interface ResidualPoint {
+  fitted: number;
+  residual: number;
+}
+
+interface CorrPoint {
+  lag: number;
+  value: number;
+}
+
+interface AdvancedMetricsResponse {
+  model_params: ModelParams;
+  statistics: Statistics;
+  statistical_tests: StatisticalTests;
+  charts: {
+    residuals: ResidualPoint[];
+    acf: CorrPoint[];
+    pacf: CorrPoint[];
+  };
+}
+
+interface MetricsRouteState {
+  selectedModelId?: number;
+  selectedModelVersion?: string;
+}
 
 export const AdvancedMetrics: React.FC = () => {
+  const location = useLocation();
+  const routeState = (location.state as MetricsRouteState | null) ?? null;
+  const storedModelId = (() => {
+    try {
+      const rawValue = localStorage.getItem("xocompass:selectedModelId");
+      if (!rawValue) return null;
+      const parsed = Number(rawValue);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  })();
+  const storedModelVersion = (() => {
+    try {
+      return localStorage.getItem("xocompass:selectedModelVersion");
+    } catch {
+      return null;
+    }
+  })();
+
+  const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
+  const selectedModelVersion =
+    routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
+
+  const [advancedMetrics, setAdvancedMetrics] =
+    useState<AdvancedMetricsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    const fetchAdvancedMetrics = async () => {
+      try {
+        setIsLoading(true);
+        setLoadError("");
+
+        const response = await fetch(
+          `https://xocompass-backend.onrender.com/api/advanced-metrics/${selectedModelId}`
+        );
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const data: AdvancedMetricsResponse = await response.json();
+        setAdvancedMetrics(data);
+      } catch (error) {
+        console.error("Unable to load advanced metrics:", error);
+        setLoadError("Unable to load advanced metrics from backend.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAdvancedMetrics();
+  }, [selectedModelId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("xocompass:selectedModelId", String(selectedModelId));
+      localStorage.setItem("xocompass:selectedModelVersion", selectedModelVersion);
+    } catch {
+      // Ignore localStorage errors in restricted environments.
+    }
+  }, [selectedModelId, selectedModelVersion]);
+
+  const acfPacfData = useMemo(() => {
+    const acf = advancedMetrics?.charts.acf ?? [];
+    const pacf = advancedMetrics?.charts.pacf ?? [];
+    const maxLength = Math.max(acf.length, pacf.length);
+    const merged: { lag: number; acf: number; pacf: number }[] = [];
+
+    for (let index = 0; index < maxLength; index += 1) {
+      merged.push({
+        lag: acf[index]?.lag ?? pacf[index]?.lag ?? index,
+        acf: acf[index]?.value ?? 0,
+        pacf: pacf[index]?.value ?? 0,
+      });
+    }
+
+    return merged;
+  }, [advancedMetrics]);
+
+  const residualsData = advancedMetrics?.charts.residuals ?? [];
+  const modelParams = advancedMetrics?.model_params;
+  const stats = advancedMetrics?.statistics;
+  const tests = advancedMetrics?.statistical_tests;
+
   return (
     <div className="space-y-8 bg-slate-100 p-6 -m-8 min-h-full">
       {/* Top bar */}
@@ -34,8 +160,11 @@ export const AdvancedMetrics: React.FC = () => {
             Advanced Analytics Dashboard
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Technical performance diagnostics for the time series forecasting
-            models.
+            Technical performance diagnostics for the time series forecasting models.
+            {" "}
+            <span className="font-medium text-slate-700">
+              Model {selectedModelVersion} (ID {selectedModelId})
+            </span>
           </p>
         </div>
         <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
@@ -44,30 +173,42 @@ export const AdvancedMetrics: React.FC = () => {
         </button>
       </div>
 
+      {isLoading && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+          Loading advanced metrics from backend...
+        </p>
+      )}
+
+      {loadError && (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+          {loadError}
+        </p>
+      )}
+
       {/* Section A: Performance */}
       <section className="space-y-4">
         <div className="grid gap-4 md:grid-cols-3">
           <MetricCard
             label="WMAPE"
-            value="4.2%"
+            value={`${(stats?.wmape ?? 0).toFixed(2)}%`}
             helper="Weighted Mean Absolute Percentage Error"
             trendLabel="Target: < 5%"
-            trendDirection="up"
+            trendDirection={(stats?.wmape ?? 100) <= 5 ? "up" : "down"}
             accent="teal"
           />
           <MetricCard
             label="RMSE"
-            value="12.4"
+            value={(stats?.rmse ?? 0).toFixed(2)}
             helper="Root Mean Squared Error"
             trendLabel="Lower is better"
-            trendDirection="up"
+            trendDirection="neutral"
           />
           <MetricCard
             label="MAE"
-            value="9.8"
+            value={(stats?.mae ?? 0).toFixed(2)}
             helper="Mean Absolute Error"
             trendLabel="Lower is better"
-            trendDirection="up"
+            trendDirection="neutral"
           />
         </div>
 
@@ -77,8 +218,7 @@ export const AdvancedMetrics: React.FC = () => {
               Model Parameters
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Final selected model: SARIMAX with exogenous marketing and macro
-              features.
+              Final selected model parameters from the deployed backend response.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -101,7 +241,9 @@ export const AdvancedMetrics: React.FC = () => {
                   <td className="px-6 py-3 text-sm font-medium text-slate-700">
                     ARIMA Order (p, d, q)
                   </td>
-                  <td className="px-6 py-3 text-sm text-slate-800">(2, 1, 2)</td>
+                  <td className="px-6 py-3 text-sm text-slate-800">
+                    ({(modelParams?.order ?? []).join(", ") || "N/A"})
+                  </td>
                   <td className="px-6 py-3 text-sm text-slate-500">
                     Captures short-term persistence and noise.
                   </td>
@@ -110,7 +252,9 @@ export const AdvancedMetrics: React.FC = () => {
                   <td className="px-6 py-3 text-sm font-medium text-slate-700">
                     Seasonal (P, D, Q, s)
                   </td>
-                  <td className="px-6 py-3 text-sm text-slate-800">(1, 1, 1, 12)</td>
+                  <td className="px-6 py-3 text-sm text-slate-800">
+                    ({(modelParams?.seasonal_order ?? []).join(", ") || "N/A"})
+                  </td>
                   <td className="px-6 py-3 text-sm text-slate-500">
                     Annual seasonality aligned with travel cycles.
                   </td>
@@ -120,7 +264,9 @@ export const AdvancedMetrics: React.FC = () => {
                     Exogenous Features
                   </td>
                   <td className="px-6 py-3 text-sm text-slate-800">
-                    Typhoon, Rainfall Index, Temperature, Wind Speed, Holiday
+                    {modelParams?.exogenous_features?.length
+                      ? modelParams.exogenous_features.join(", ")
+                      : "None"}
                   </td>
                   <td className="px-6 py-3 text-sm text-slate-500">
                     Improves response to demand shocks and campaigns.
@@ -257,42 +403,48 @@ export const AdvancedMetrics: React.FC = () => {
                 <td className="px-6 py-3 font-medium text-slate-800">
                   Augmented Dickey-Fuller (ADF)
                 </td>
-                <td className="px-6 py-3 text-slate-700">-4.23</td>
-                <td className="px-6 py-3 text-emerald-600">0.001</td>
                 <td className="px-6 py-3 text-slate-700">
-                  Series is{" "}
+                  {(tests?.adf_stat ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-emerald-600">
+                  {(tests?.adf_pvalue ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-slate-700">
                   <span className="font-semibold text-emerald-700">
-                    stationary after differencing
+                    {tests?.adf_conclusion ?? "N/A"}
                   </span>
-                  .
                 </td>
               </tr>
               <tr className="hover:bg-slate-50">
                 <td className="px-6 py-3 font-medium text-slate-800">
                   Ljung-Box Q(20)
                 </td>
-                <td className="px-6 py-3 text-slate-700">18.7</td>
-                <td className="px-6 py-3 text-emerald-600">0.29</td>
                 <td className="px-6 py-3 text-slate-700">
-                  Residuals show{" "}
+                  {(tests?.ljungbox_stat ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-emerald-600">
+                  {(tests?.ljungbox_pvalue ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-slate-700">
                   <span className="font-semibold text-emerald-700">
-                    no significant autocorrelation
+                    {tests?.ljungbox_conclusion ?? "N/A"}
                   </span>
-                  .
                 </td>
               </tr>
               <tr className="bg-slate-50/40 hover:bg-slate-50">
                 <td className="px-6 py-3 font-medium text-slate-800">
                   Jarque-Bera
                 </td>
-                <td className="px-6 py-3 text-slate-700">1.87</td>
-                <td className="px-6 py-3 text-emerald-600">0.39</td>
                 <td className="px-6 py-3 text-slate-700">
-                  Residuals are{" "}
+                  {(tests?.jarquebera_stat ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-emerald-600">
+                  {(tests?.jarquebera_pvalue ?? 0).toFixed(4)}
+                </td>
+                <td className="px-6 py-3 text-slate-700">
                   <span className="font-semibold text-emerald-700">
-                    approximately normal
-                  </span>{" "}
-                  around zero.
+                    {tests?.jarquebera_conclusion ?? "N/A"}
+                  </span>
                 </td>
               </tr>
             </tbody>
