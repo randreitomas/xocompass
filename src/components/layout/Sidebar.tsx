@@ -35,18 +35,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         isCollapsed ? "w-20" : "w-64"
       }`}
     >
-      <div className={`flex h-16 items-center border-b ${isCollapsed ? "px-3" : "px-6"}`}>
-        <div className={`flex items-center ${isCollapsed ? "w-full justify-center" : "gap-2"}`}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-600 text-white font-semibold">
-            XO
-          </div>
-          {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold tracking-tight">
-                XoCompass
-              </span>
+      <div className={`flex h-16 items-center border-b ${isCollapsed ? "px-3" : "px-4"}`}>
+        <div className="flex w-full items-center justify-between">
+          <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-2"}`}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-600 text-white font-semibold">
+              XO
             </div>
-          )}
+            {!isCollapsed && (
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold tracking-tight">
+                  XoCompass
+                </span>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            title={isCollapsed ? "Expand menu" : "Collapse menu"}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -124,23 +138,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
             </div>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={onToggle}
-          className={`mt-3 inline-flex w-full items-center rounded-lg border border-slate-200 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 ${
-            isCollapsed ? "justify-center px-2" : "justify-between px-3"
-          }`}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <>
-              <span>Collapse menu</span>
-              <ChevronLeft className="h-4 w-4" />
-            </>
-          )}
-        </button>
       </div>
     </aside>
   );

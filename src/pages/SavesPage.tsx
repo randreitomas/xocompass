@@ -5,7 +5,7 @@ import { apiUrl } from "../lib/api";
 interface BackendModel {
   id: number;
   version: string;
-  train_end_date: string;
+  created_at: string;
   aic_score: number;
   notes: string | null;
 }
@@ -278,7 +278,7 @@ export const SavesPage: React.FC = () => {
                   Save {index + 1}
                 </p>
                 <p className="text-sm text-slate-500">
-                  {formatProcessedDate(model.train_end_date)}
+                  {formatProcessedDate(model.created_at)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Model {model.version} | AIC {model.aic_score.toFixed(2)}
