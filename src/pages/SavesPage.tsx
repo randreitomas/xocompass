@@ -15,7 +15,9 @@ interface ModelsResponse {
 }
 
 const MODELS_API_URL = apiUrl("/api/models");
-const UPLOAD_API_URL = apiUrl("/api/upload");
+const UPLOAD_PROXY_URL = apiUrl("/api/upload");
+const UPLOAD_DIRECT_URL =
+  import.meta.env.VITE_UPLOAD_URL || "https://xocompass-backend.onrender.com/api/upload";
 const RETRAIN_API_URL = apiUrl("/api/retrain");
 
 interface UploadResponse {
@@ -134,10 +136,26 @@ export const SavesPage: React.FC = () => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(UPLOAD_API_URL, {
-        method: "POST",
-        body: formData,
-      });
+      // Vercel external rewrites can be flaky for large multipart bodies.
+      // Prefer the same-origin proxy for smaller payloads, but fall back to direct upload if needed.
+      const shouldUseDirectUpload = file.size > 3_500_000; // ~3.5MB safety margin
+      const primaryUrl = shouldUseDirectUpload ? UPLOAD_DIRECT_URL : UPLOAD_PROXY_URL;
+      const fallbackUrl = shouldUseDirectUpload ? UPLOAD_PROXY_URL : UPLOAD_DIRECT_URL;
+
+      const doUpload = async (url: string) =>
+        fetch(url, {
+          method: "POST",
+          body: formData,
+        });
+
+      let response: Response;
+      try {
+        response = await doUpload(primaryUrl);
+      } catch (err) {
+        // Only retry once on network/CORS-style failures.
+        console.warn("Primary upload attempt failed, retrying:", err);
+        response = await doUpload(fallbackUrl);
+      }
 
       if (!response.ok) {
         let errorMessage =
