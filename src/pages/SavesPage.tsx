@@ -15,13 +15,22 @@ interface ModelsResponse {
 }
 
 const MODELS_API_URL = apiUrl("/api/models");
-const UPLOAD_API_URL = apiUrl("/api/upload");
+const UPLOAD_API_URL = "https://xocompass-backend.onrender.com/api/upload";
 const RETRAIN_API_URL = apiUrl("/api/retrain");
 
 interface UploadResponse {
   status: string;
   message: string;
   new_records: number;
+}
+
+interface UploadErrorResponse {
+  message?: string;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown[];
+  };
 }
 
 interface RetrainResponse {
@@ -110,7 +119,9 @@ export const SavesPage: React.FC = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -129,7 +140,19 @@ export const SavesPage: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed with status ${response.status}`);
+        let errorMessage =
+          "Upload failed. Please confirm the file format and try again.";
+        try {
+          const errorData = (await response.json()) as UploadErrorResponse;
+          if (errorData?.error?.message) {
+            errorMessage = errorData.error.message;
+          } else if (errorData?.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          errorMessage = `Upload failed with status ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result: UploadResponse = await response.json();
@@ -139,11 +162,13 @@ export const SavesPage: React.FC = () => {
       setIsUploadReady(true);
 
       await fetchModels();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Dataset upload failed:", error);
-      setUploadStatus(
-        "Upload failed. Please confirm the file format and try again."
-      );
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred during upload.";
+      setUploadStatus(errorMessage);
       setIsUploadReady(false);
     } finally {
       setIsUploading(false);
