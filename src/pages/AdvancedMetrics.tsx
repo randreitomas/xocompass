@@ -13,6 +13,7 @@ import {
 import { Download } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
+import { apiUrl } from "../lib/api";
 
 interface ModelParams {
   order: number[];
@@ -101,7 +102,7 @@ export const AdvancedMetrics: React.FC = () => {
         setLoadError("");
 
         const response = await fetch(
-          `https://xocompass-backend.onrender.com/api/advanced-metrics/${selectedModelId}`
+          apiUrl(`/api/advanced-metrics/${selectedModelId}`)
         );
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);

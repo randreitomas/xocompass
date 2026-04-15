@@ -15,6 +15,7 @@ import { useLocation } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
 import { ChartContainer } from "../components/ui/ChartContainer";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { apiUrl } from "../lib/api";
 
 const fallbackForecastData = [
   { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
@@ -97,7 +98,7 @@ export const SimplifiedMetrics: React.FC = () => {
         setLoadError("");
 
         const response = await fetch(
-          `https://xocompass-backend.onrender.com/api/dashboard-stats/${selectedModelId}`
+          apiUrl(`/api/dashboard-stats/${selectedModelId}`)
         );
 
         if (!response.ok) {

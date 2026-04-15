@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiUrl } from "../lib/api";
 
 interface BackendModel {
   id: number;
@@ -13,9 +14,9 @@ interface ModelsResponse {
   available_models: BackendModel[];
 }
 
-const MODELS_API_URL = "https://xocompass-backend.onrender.com/api/models";
-const UPLOAD_API_URL = "https://xocompass-backend.onrender.com/api/upload";
-const RETRAIN_API_URL = "https://xocompass-backend.onrender.com/api/retrain";
+const MODELS_API_URL = apiUrl("/api/models");
+const UPLOAD_API_URL = apiUrl("/api/upload");
+const RETRAIN_API_URL = apiUrl("/api/retrain");
 
 interface UploadResponse {
   status: string;
@@ -71,7 +72,9 @@ export const SavesPage: React.FC = () => {
       return data.available_models ?? [];
     } catch (error) {
       console.error("Unable to fetch models for saves page:", error);
-      setLoadError("Unable to load saves from backend. Please try again.");
+      setLoadError(
+        "Unable to load saves from backend. Please try again. If this is Vercel, verify backend proxy routing."
+      );
       return [];
     } finally {
       setIsLoading(false);
@@ -198,12 +201,8 @@ export const SavesPage: React.FC = () => {
       );
 
       const [dashboardResponse, advancedResponse] = await Promise.all([
-        fetch(
-          `https://xocompass-backend.onrender.com/api/dashboard-stats/${latestModel.id}`
-        ),
-        fetch(
-          `https://xocompass-backend.onrender.com/api/advanced-metrics/${latestModel.id}`
-        ),
+        fetch(apiUrl(`/api/dashboard-stats/${latestModel.id}`)),
+        fetch(apiUrl(`/api/advanced-metrics/${latestModel.id}`)),
       ]);
 
       if (!dashboardResponse.ok || !advancedResponse.ok) {

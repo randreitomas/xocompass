@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/backend/:path*",
+      "destination": "https://xocompass-backend.onrender.com/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
