@@ -27,19 +27,14 @@ const groups: Record<string, FaqItem[]> = {
     {
       question: "What do WMAPE, RMSE, and MAE mean?",
       answer:
-        "WMAPE (Weighted Mean Absolute Percentage Error) measures percentage accuracy; lower is better and a target under 5% is typical. RMSE (Root Mean Squared Error) and MAE (Mean Absolute Error) measure absolute error magnitude—lower is better. These evaluation metrics are shown on the Advanced Analytics dashboard and in the Time Series Model Lab evaluation step.",
+        "WMAPE (Weighted Mean Absolute Percentage Error) measures percentage accuracy; lower is better and a target under 5% is typical. RMSE (Root Mean Squared Error) and MAE (Mean Absolute Error) measure absolute error magnitude—lower is better. These evaluation metrics are shown on the Advanced Analytics dashboard.",
     },
   ],
   "Advanced Analytics": [
     {
       question: "Which forecasting models are supported?",
       answer:
-        "The Time Series Model Lab supports ARIMA, SARIMA, and SARIMAX families, with exogenous factors such as marketing spend and macro indicators. The lab compares them and recommends SARIMAX for production when it performs best.",
-    },
-    {
-      question: "What does the Time Series Model Lab workflow cover?",
-      answer:
-        "The lab walks you through: (1) Data ingestion and summary stats, (2) Correlation analysis, (3) Stationarity testing (e.g. ADF), (4) Time series decomposition, (5) Model comparison (ARIMA vs SARIMA vs SARIMAX), and (6) Evaluation with WMAPE, RMSE, and MAE and a production-ready summary.",
+        "XoCompass supports ARIMA, SARIMA, and SARIMAX families, with exogenous factors such as marketing spend and macro indicators. Model performance is reviewed in the Advanced Analytics dashboard.",
     },
     {
       question: "Can I export technical diagnostics?",

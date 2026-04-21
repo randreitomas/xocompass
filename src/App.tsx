@@ -3,7 +3,6 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { MainLayout } from "./layouts/MainLayout";
 import { SimplifiedMetrics } from "./pages/SimplifiedMetrics";
 import { AdvancedMetrics } from "./pages/AdvancedMetrics";
-import { TimeSeriesModelLab } from "./pages/TimeSeriesModelLab";
 import { FaqsPage } from "./pages/FaqsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SavesPage } from "./pages/SavesPage";
@@ -24,7 +23,6 @@ const App: React.FC = () => {
       >
         <Route path="/simplified" element={<SimplifiedMetrics />} />
         <Route path="/advanced" element={<AdvancedMetrics />} />
-        <Route path="/model-lab" element={<TimeSeriesModelLab />} />
         <Route path="/faqs" element={<FaqsPage />} />
       </Route>
     </Routes>

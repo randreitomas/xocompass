@@ -3,7 +3,6 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   LineChart,
-  FlaskConical,
   HelpCircle,
   User,
   ChevronLeft,
@@ -91,17 +90,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         >
           <LineChart size={16} />
           {!isCollapsed && <span>Advanced Metrics</span>}
-        </NavLink>
-
-        <NavLink
-          to="/model-lab"
-          className={({ isActive }) =>
-            `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
-          }
-          title="Time Series Model Lab"
-        >
-          <FlaskConical size={16} />
-          {!isCollapsed && <span>Time Series Model Lab</span>}
         </NavLink>
 
         <NavLink
