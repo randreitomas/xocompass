@@ -1,7 +1,10 @@
-// Default to the deployed backend. Override via VITE_API_BASE_URL when needed
-// (e.g. local dev proxy at /backend).
-const DEFAULT_API_BASE_URL =
-  "https://xocompass-backend-572370238000.asia-southeast1.run.app";
+/**
+ * Prefer same-origin `/backend` in production (Vercel rewrite avoids CORS).
+ * Override anytime via `VITE_API_BASE_URL`.
+ */
+const DEFAULT_API_BASE_URL = import.meta.env.PROD
+  ? "/backend"
+  : "https://xocompass-backend-572370238000.asia-southeast1.run.app";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
