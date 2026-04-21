@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/backend/:path*",
-      "destination": "https://xocompass-backend.onrender.com/:path*"
+      "destination": "https://xocompass-backend-572370238000.asia-southeast1.run.app/:path*"
     },
     {
       "source": "/(.*)",
