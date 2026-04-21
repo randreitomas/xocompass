@@ -291,7 +291,9 @@ export const SavesPage: React.FC = () => {
 
           {!isLoading &&
             !loadError &&
-            models.slice(0, 2).map((model, index) => (
+            [...models]
+              .sort((a, b) => b.id - a.id)
+              .map((model, index) => (
               <button
                 key={model.id}
                 type="button"
