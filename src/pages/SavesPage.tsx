@@ -8,6 +8,7 @@ interface BackendModel {
   created_at: string;
   aic_score: number;
   notes: string | null;
+  model_name?: string | null;
 }
 
 interface ModelsResponse {
@@ -17,6 +18,9 @@ interface ModelsResponse {
 const MODELS_API_URL = apiUrl("/api/models");
 const UPLOAD_API_URL = apiUrl("/api/upload");
 const RETRAIN_API_URL = apiUrl("/api/retrain");
+const renameModelApiUrl = (modelId: number) =>
+  apiUrl(`/api/models/${modelId}/rename`);
+const deleteModelApiUrl = (modelId: number) => apiUrl(`/api/models/${modelId}`);
 
 interface UploadResponse {
   status: string;
@@ -67,6 +71,18 @@ export const SavesPage: React.FC = () => {
   const [retrainStatus, setRetrainStatus] = useState<string>("");
   const [retrainElapsedSeconds, setRetrainElapsedSeconds] = useState(0);
   const [successToast, setSuccessToast] = useState<string>("");
+  const [isMutatingSave, setIsMutatingSave] = useState(false);
+
+  const getBackendSaveName = (model: BackendModel) => {
+    const typedName = model.model_name?.trim();
+    if (typedName) return typedName;
+    const notesName = model.notes?.trim();
+    if (notesName) return notesName;
+    return null;
+  };
+
+  const getDisplaySaveName = (model: BackendModel, index: number) =>
+    getBackendSaveName(model) ?? `Save ${index + 1}`;
 
   const fetchModels = async (): Promise<BackendModel[]> => {
     try {
@@ -115,6 +131,65 @@ export const SavesPage: React.FC = () => {
         selectedModelVersion: model.version,
       },
     });
+  };
+
+  const handleRenameSave = async (model: BackendModel, index: number) => {
+    const currentName = getDisplaySaveName(model, index);
+    const proposed = window.prompt("Rename save", currentName);
+    if (proposed === null) return;
+    const nextName = proposed.trim();
+    if (!nextName || nextName === currentName) return;
+
+    try {
+      setIsMutatingSave(true);
+      setSuccessToast("");
+
+      const response = await fetch(renameModelApiUrl(model.id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_model_name: nextName }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Rename failed with status ${response.status}`);
+      }
+
+      await fetchModels();
+      setSuccessToast("Save renamed.");
+    } catch (error) {
+      console.error("Rename save failed:", error);
+      setSuccessToast("Unable to rename save. Please try again.");
+    } finally {
+      setIsMutatingSave(false);
+    }
+  };
+
+  const handleDeleteSave = async (model: BackendModel) => {
+    const confirmed = window.confirm(
+      "Delete this save? This will remove it from the backend model registry."
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsMutatingSave(true);
+      setSuccessToast("");
+
+      const response = await fetch(deleteModelApiUrl(model.id), {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Delete failed with status ${response.status}`);
+      }
+
+      await fetchModels();
+      setSuccessToast("Save deleted.");
+    } catch (error) {
+      console.error("Delete save failed:", error);
+      setSuccessToast("Unable to delete save. Please try again.");
+    } finally {
+      setIsMutatingSave(false);
+    }
   };
 
   const handleNewSessionClick = () => {
@@ -242,6 +317,21 @@ export const SavesPage: React.FC = () => {
         latestModel.version
       );
 
+      const defaultName = `Model ${latestModel.version} (ID ${latestModel.id})`;
+      const chosenName = window.prompt("Name this save", defaultName)?.trim();
+      if (chosenName && chosenName !== getBackendSaveName(latestModel)) {
+        try {
+          await fetch(renameModelApiUrl(latestModel.id), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_model_name: chosenName }),
+          });
+          await fetchModels();
+        } catch (error) {
+          console.error("Auto-rename after retrain failed:", error);
+        }
+      }
+
       const elapsedSeconds = retrainStartedAtRef.current
         ? Math.floor((Date.now() - retrainStartedAtRef.current) / 1000)
         : 0;
@@ -296,24 +386,49 @@ export const SavesPage: React.FC = () => {
             [...models]
               .sort((a, b) => b.id - a.id)
               .map((model, index) => (
-              <button
-                key={model.id}
-                type="button"
-                onClick={() => handleOpenSave(model)}
-                disabled={isUploading || isRetraining}
-                className="w-full rounded-xl border border-slate-200 px-4 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50/40"
-              >
-                <p className="text-base font-semibold text-slate-900">
-                  Save {index + 1}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {formatProcessedDate(model.created_at)}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Model {model.version} | AIC {model.aic_score.toFixed(2)}
-                </p>
-              </button>
-            ))}
+                <div
+                  key={model.id}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50/40"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenSave(model)}
+                      disabled={isUploading || isRetraining || isMutatingSave}
+                      className="flex-1 text-left"
+                    >
+                      <p className="text-base font-semibold text-slate-900">
+                        {getDisplaySaveName(model, index)}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {formatProcessedDate(model.created_at)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Model {model.version} | AIC {model.aic_score.toFixed(2)}
+                      </p>
+                    </button>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRenameSave(model, index)}
+                        disabled={isUploading || isRetraining || isMutatingSave}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSave(model)}
+                        disabled={isUploading || isRetraining || isMutatingSave}
+                        className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
 
           {!isLoading && !loadError && models.length === 0 && (
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
