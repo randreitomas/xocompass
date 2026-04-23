@@ -43,10 +43,12 @@ const formatProcessedDate = (dateValue: string) => {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "Processed date unavailable";
 
-  return `Processed ${date.toLocaleDateString("en-US", {
+  return `Processed ${date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   })}`;
 };
 
