@@ -22,13 +22,11 @@ export const LoginPage: React.FC = () => {
               Realtime POS & Travel Demand Intelligence
             </div>
             <h1 className="text-3xl font-semibold leading-snug">
-              See your{" "}
-              <span className="text-teal-300">KJS travel business</span> in a
-              single, intelligent compass.
+            Make faster, smarter decisions for {" "}
+              <span className="text-teal-300">KJS Travel & Tours</span>.
             </h1>
             <p className="mt-4 text-sm text-slate-200/80">
-              XoCompass turns raw POS data into actionable insights for revenue
-              leaders, operations, and strategy teams.
+            XoCompass turns raw POS and travel demand data into clear, actionable intelligence — so your team spends less time on reports and more time on strategy.
             </p>
           </div>
         </div>
