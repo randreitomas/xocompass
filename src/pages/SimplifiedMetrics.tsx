@@ -3,6 +3,8 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -29,12 +31,25 @@ const fallbackForecastData = [
   { month: "Sep", actual: 375, predicted: 400, lowerCI: 360, upperCI: 435 },
 ];
 
+const fallbackBookingsByYearData = [
+  { year: 2021, bookings: 24150 },
+  { year: 2022, bookings: 26840 },
+  { year: 2023, bookings: 30210 },
+  { year: 2024, bookings: 33190 },
+  { year: 2025, bookings: 34582 },
+];
+
 interface ForecastPoint {
   month: string;
   actual: number;
   predicted: number;
   lowerCI: number;
   upperCI: number;
+}
+
+interface BookingsByYearPoint {
+  year: number;
+  bookings: number;
 }
 
 interface DashboardStatsResponse {
@@ -45,6 +60,7 @@ interface DashboardStatsResponse {
   expected_bookings: number;
   peak_travel_period: string;
   bookings_forecast: ForecastPoint[];
+  bookings_by_year?: BookingsByYearPoint[];
 }
 
 interface MetricsRouteState {
@@ -148,6 +164,18 @@ export const SimplifiedMetrics: React.FC = () => {
     const pct = ((last - first) / first) * 100;
     return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% across forecast window`;
   }, [chartData]);
+
+  const bookingsByYearData = useMemo(() => {
+    const raw = dashboardStats?.bookings_by_year;
+    if (raw && raw.length > 0) {
+      return raw
+        .filter((point) => Number.isFinite(point.year) && Number.isFinite(point.bookings))
+        .slice()
+        .sort((a, b) => a.year - b.year);
+    }
+
+    return fallbackBookingsByYearData;
+  }, [dashboardStats]);
 
   return (
     <div className="space-y-8 bg-slate-100 p-6 -m-8 min-h-full">
@@ -405,7 +433,7 @@ export const SimplifiedMetrics: React.FC = () => {
       <section className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">
-            Data Overview
+            Historical Data Overview
           </h2>
           <span className="text-sm text-slate-500">
             Snapshot as of {new Date().toLocaleDateString("en-US")}
@@ -439,6 +467,46 @@ export const SimplifiedMetrics: React.FC = () => {
             trendDirection={growthDirection}
             accent="teal"
           />
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-3 flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Bookings Over Time
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Total number of bookings per year.
+              </p>
+            </div>
+          </div>
+
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bookingsByYearData} margin={{ left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="year"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: 12,
+                    borderColor: "#E5E7EB",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="bookings" name="Bookings" fill="#0D9488" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </section>
     </div>
