@@ -153,7 +153,7 @@ export const AdvancedMetrics: React.FC = () => {
   const tests = advancedMetrics?.statistical_tests;
 
   return (
-    <div className="space-y-8 bg-slate-100 p-6 -m-8 min-h-full">
+    <div className="space-y-8 bg-[#F4FFF8] p-6 -m-8 min-h-full">
       {/* Top bar */}
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>

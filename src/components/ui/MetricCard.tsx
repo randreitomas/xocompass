@@ -40,13 +40,15 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       : null;
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-slate-300 bg-white p-6 shadow-md transition hover:shadow-lg">
-      <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
+    <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md">
+      <p className="text-[15px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </p>
 
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-xl font-semibold text-slate-900">{value}</p>
+        <p className="text-[28px] font-semibold leading-none tracking-tight text-slate-900">
+          {value}
+        </p>
         {helper && (
           <span
             className={`rounded-full px-2 py-1 text-[10px] font-medium ${accentClasses}`}
@@ -57,7 +59,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       </div>
 
       {trendLabel && (
-        <div className={`mt-1 inline-flex items-center gap-1 text-sm ${trendColor}`}>
+        <div
+          className={`mt-1 inline-flex items-center gap-1 text-[12px] font-medium ${trendColor}`}
+        >
           {TrendIcon && <TrendIcon className="h-3 w-3" />}
           <span>{trendLabel}</span>
         </div>

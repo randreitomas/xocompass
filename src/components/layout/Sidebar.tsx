@@ -9,11 +9,11 @@ import {
   ChevronRight,
   LogOut,
 } from "lucide-react";
+import sidebarLogoSrc from "../../assets/xocompass-logo.png";
 
 const navItemBase = "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
-const navItemInactive = "text-slate-600 hover:bg-teal-50 hover:text-teal-700";
-const navItemActive = "bg-teal-50 text-teal-700";
-
+const navItemInactive = "text-slate-300 hover:bg-white/10 hover:text-white";
+const navItemActive = "bg-white/10 text-white";
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
@@ -30,43 +30,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r bg-white transition-all duration-200 ${
+      className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r border-white/10 bg-[#141316] transition-all duration-200 ${
         isCollapsed ? "w-20" : "w-64"
       }`}
     >
-      <div className={`flex h-16 items-center border-b ${isCollapsed ? "px-3" : "px-4"}`}>
-        <div className="flex w-full items-center justify-between">
+      <div className={`flex h-16 items-center border-b border-white/10 ${isCollapsed ? "px-3" : "px-4"}`}>
+        <div className={`flex w-full ${isCollapsed ? "justify-center" : "items-center gap-2"}`}>
           <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-2"}`}>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-600 text-white font-semibold">
-              XO
-            </div>
+            <img
+              src={sidebarLogoSrc}
+              alt="XoCompass logo"
+              className="h-8 w-8 rounded-xl object-cover"
+            />
             {!isCollapsed && (
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold tracking-tight">
+              <div className="flex items-center">
+                <span className="text-base font-semibold leading-none tracking-tight text-white">
                   XoCompass
                 </span>
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onToggle}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-            title={isCollapsed ? "Expand menu" : "Collapse menu"}
-          >
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </button>
         </div>
       </div>
 
       <nav className={`flex-1 space-y-1 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
         {!isCollapsed && (
           <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Navigation
+            Main Menu
           </p>
         )}
 
@@ -86,10 +76,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           className={({ isActive }) =>
             `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
           }
-          title="Advanced Analytics"
+          title="Advanced Metrics"
         >
           <LineChart size={16} />
-          {!isCollapsed && <span>Advanced Analytics</span>}
+          {!isCollapsed && <span>Advanced Metrics</span>}
         </NavLink>
 
         <NavLink
@@ -104,14 +94,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         </NavLink>
       </nav>
 
-      <div className={`border-t py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
-        <div className={`rounded-lg p-2 ${isCollapsed ? "flex justify-center" : "flex items-center gap-3"} hover:bg-slate-50`}>
+      <div className={`${isCollapsed ? "px-2" : "px-4"} pb-2`}>
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`inline-flex items-center gap-2 text-slate-300 transition hover:bg-white/10 hover:text-white ${
+            isCollapsed
+              ? "h-8 w-full justify-center rounded-full"
+              : "h-9 w-full justify-start rounded-lg px-3"
+          }`}
+          title={isCollapsed ? "Expand menu" : "Collapse menu"}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <ChevronLeft className="h-4 w-4 shrink-0" />
+          )}
+          {!isCollapsed && <span className="text-sm font-medium">Collapse Menu</span>}
+        </button>
+      </div>
+
+      <div className={`border-t border-white/10 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
+        <div className={`rounded-lg p-2 ${isCollapsed ? "flex justify-center" : "flex items-center gap-3"} hover:bg-white/5`}>
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600/10">
             <User className="h-5 w-5 text-teal-600" />
           </div>
           {!isCollapsed && (
             <div className="flex flex-col">
-              <span className="text-sm font-semibold">Admin</span>
+              <span className="text-sm font-semibold text-white">Admin</span>
               <span className="text-sm text-slate-500">
                 admin@xocompass.com
               </span>

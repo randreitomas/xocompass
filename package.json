@@ -9,12 +9,13 @@
     "lint": "echo \"No linter configured\""
   },
   "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "lucide-react": "^0.460.0",
-    "recharts": "^2.12.0",
-    "framer-motion": "^11.0.0"
+    "recharts": "^2.12.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.5",
