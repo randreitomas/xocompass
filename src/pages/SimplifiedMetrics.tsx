@@ -221,7 +221,12 @@ export const SimplifiedMetrics: React.FC = () => {
 
       <ChartContainer
         title="Booking Forecast"
-        description="Forecast comparison for Jan–Sep 2026 with 95% confidence interval."
+        description="Forecast comparison for Jan–Sep 2026."
+        headerMeta={
+          <span className="text-sm text-slate-500">
+            Snapshot as of {new Date().toLocaleDateString("en-US")}
+          </span>
+        }
       >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ left: -20 }}>
@@ -443,9 +448,6 @@ export const SimplifiedMetrics: React.FC = () => {
           <h2 className="text-sm font-semibold text-slate-900">
             Historical Data Overview
           </h2>
-          <span className="text-sm text-slate-500">
-            Snapshot as of {new Date().toLocaleDateString("en-US")}
-          </span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

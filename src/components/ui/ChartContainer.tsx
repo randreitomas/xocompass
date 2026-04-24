@@ -3,12 +3,14 @@ import React from "react";
 interface ChartContainerProps {
   title: string;
   description?: string;
+  headerMeta?: React.ReactNode;
   children: React.ReactNode;
 }
 
 export const ChartContainer: React.FC<ChartContainerProps> = ({
   title,
   description,
+  headerMeta,
   children,
 }) => {
   return (
@@ -20,6 +22,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             <p className="mt-1 text-sm text-slate-500">{description}</p>
           )}
         </div>
+        {headerMeta && <div className="pt-0.5">{headerMeta}</div>}
       </div>
       <div className="h-80">{children}</div>
     </section>
