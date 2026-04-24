@@ -32,6 +32,14 @@ const fallbackForecastData = [
 ];
 
 const fallbackBookingsByYearData = [
+  { year: 2013, bookings: 11240 },
+  { year: 2014, bookings: 12890 },
+  { year: 2015, bookings: 14120 },
+  { year: 2016, bookings: 15670 },
+  { year: 2017, bookings: 17430 },
+  { year: 2018, bookings: 19210 },
+  { year: 2019, bookings: 21480 },
+  { year: 2020, bookings: 13150 },
   { year: 2021, bookings: 24150 },
   { year: 2022, bookings: 26840 },
   { year: 2023, bookings: 30210 },
