@@ -75,10 +75,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           className={({ isActive }) =>
             `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
           }
-          title="Simplified Metrics"
+          title="Business Analytics"
         >
           <LayoutDashboard size={16} />
-          {!isCollapsed && <span>Simplified Metrics</span>}
+          {!isCollapsed && <span>Business Analytics</span>}
         </NavLink>
 
         <NavLink
@@ -86,10 +86,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           className={({ isActive }) =>
             `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
           }
-          title="Advanced Metrics"
+          title="Advanced Analytics"
         >
           <LineChart size={16} />
-          {!isCollapsed && <span>Advanced Metrics</span>}
+          {!isCollapsed && <span>Advanced Analytics</span>}
         </NavLink>
 
         <NavLink
