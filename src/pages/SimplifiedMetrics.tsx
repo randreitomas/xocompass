@@ -183,93 +183,8 @@ export const SimplifiedMetrics: React.FC = () => {
         </p>
       )}
 
-      <section className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Data Overview
-          </h2>
-          <span className="text-sm text-slate-500">
-            Snapshot as of {new Date().toLocaleDateString("en-US")}
-          </span>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-4">
-          <MetricCard
-            label="Total Records"
-            value={(dashboardStats?.total_records ?? 34582).toLocaleString("en-US")}
-            helper="Transactions in model-ready dataset"
-            trendLabel="Loaded from deployed model stats"
-            trendDirection="up"
-          />
-          <MetricCard
-            label="Data Quality"
-            value={`${(dashboardStats?.data_quality_pct ?? 96.3).toFixed(1)}%`}
-            helper="Post-cleaning completeness"
-            trendLabel="Latest completeness score"
-            trendDirection="up"
-            accent="teal"
-          />
-          <MetricCard
-            label="Revenue (₱)"
-            value={formatCompactRevenue(dashboardStats?.revenue_total ?? 38200000)}
-            helper="Total recognized revenue"
-            trendLabel={`${growthLabel} YoY`}
-            trendDirection={growthDirection}
-          />
-          <MetricCard
-            label="Growth Rate"
-            value={growthLabel}
-            helper="Bookings & revenue"
-            trendLabel={
-              growthDirection === "up"
-                ? "Accelerating growth trajectory"
-                : "Demand is cooling vs prior period"
-            }
-            trendDirection={growthDirection}
-            accent="teal"
-          />
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
-          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
-            Expected Bookings
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {(dashboardStats?.expected_bookings ?? 2847).toLocaleString("en-US")}
-          </p>
-          <p
-            className={`mt-1 text-sm font-medium ${
-              growthDirection === "up" ? "text-emerald-600" : "text-amber-600"
-            }`}
-          >
-            {expectedBookingsTrendLabel}
-          </p>
-          <p className="mt-3 text-sm text-slate-500">
-            Forecasted bookings from the selected saved model.
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
-          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
-            Peak Travel Period
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {dashboardStats?.peak_travel_period ?? "Apr – Jun 2026"}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">
-            Target segment:{" "}
-            <span className="font-semibold text-teal-700">Families</span>
-          </p>
-          <p className="mt-3 text-sm text-slate-500">
-            Peak period detected from the currently selected model run.
-          </p>
-        </div>
-      </section>
-
       <ChartContainer
-        title="Actual vs Predicted Bookings"
+        title="Booking Forecast"
         description="Forecast comparison for Jan–Sep 2026 with 95% confidence interval."
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -330,6 +245,39 @@ export const SimplifiedMetrics: React.FC = () => {
           </LineChart>
         </ResponsiveContainer>
       </ChartContainer>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
+          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
+            Expected Bookings
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(dashboardStats?.expected_bookings ?? 2847).toLocaleString("en-US")}
+          </p>
+          <p
+            className={`mt-1 text-sm font-medium ${
+              growthDirection === "up" ? "text-emerald-600" : "text-amber-600"
+            }`}
+          >
+            {expectedBookingsTrendLabel}
+          </p>
+          <p className="mt-3 text-sm text-slate-500">
+            Forecasted bookings from the selected saved model.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
+          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
+            Peak Travel Period
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {dashboardStats?.peak_travel_period ?? "Apr – Jun 2026"}
+          </p>
+          <p className="mt-3 text-sm text-slate-500">
+            Peak period detected from the currently selected model run.
+          </p>
+        </div>
+      </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-md lg:col-span-2">
@@ -451,6 +399,46 @@ export const SimplifiedMetrics: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-300 bg-white p-6 shadow-md">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Data Overview
+          </h2>
+          <span className="text-sm text-slate-500">
+            Snapshot as of {new Date().toLocaleDateString("en-US")}
+          </span>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <MetricCard
+            label="Total Records"
+            value={(dashboardStats?.total_records ?? 34582).toLocaleString("en-US")}
+            helper="Transactions in model-ready dataset"
+            trendLabel="Loaded from deployed model stats"
+            trendDirection="up"
+          />
+          <MetricCard
+            label="Revenue (₱)"
+            value={formatCompactRevenue(dashboardStats?.revenue_total ?? 38200000)}
+            helper="Total recognized revenue"
+            trendLabel={`${growthLabel} YoY`}
+            trendDirection={growthDirection}
+          />
+          <MetricCard
+            label="Growth Rate"
+            value={growthLabel}
+            helper="Bookings & revenue"
+            trendLabel={
+              growthDirection === "up"
+                ? "Accelerating growth trajectory"
+                : "Demand is cooling vs prior period"
+            }
+            trendDirection={growthDirection}
+            accent="teal"
+          />
         </div>
       </section>
     </div>
