@@ -634,7 +634,7 @@ export const SavesPage: React.FC = () => {
               {latestVersion && (
                 <>
                   <span className="mx-1.5 text-slate-300">·</span>
-                  Model v{latestVersion}
+                  Model {latestVersion}
                 </>
               )}
             </p>
