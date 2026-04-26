@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiUrl } from "../lib/api";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BackendModel {
   id: number;
@@ -15,13 +17,6 @@ interface ModelsResponse {
   available_models: BackendModel[];
 }
 
-const MODELS_API_URL = apiUrl("/api/models");
-const UPLOAD_API_URL = apiUrl("/api/upload");
-const RETRAIN_API_URL = apiUrl("/api/retrain");
-const renameModelApiUrl = (modelId: number) =>
-  apiUrl(`/api/models/${modelId}/rename`);
-const deleteModelApiUrl = (modelId: number) => apiUrl(`/api/models/${modelId}`);
-
 interface UploadResponse {
   status: string;
   message: string;
@@ -30,11 +25,7 @@ interface UploadResponse {
 
 interface UploadErrorResponse {
   message?: string;
-  error?: {
-    code?: string;
-    message?: string;
-    details?: unknown[];
-  };
+  error?: { code?: string; message?: string; details?: unknown[] };
 }
 
 interface RetrainResponse {
@@ -43,10 +34,19 @@ interface RetrainResponse {
   new_records_used?: number | null;
 }
 
+// ─── API URLs (unchanged) ─────────────────────────────────────────────────────
+
+const MODELS_API_URL = apiUrl("/api/models");
+const UPLOAD_API_URL = apiUrl("/api/upload");
+const RETRAIN_API_URL = apiUrl("/api/retrain");
+const renameModelApiUrl = (id: number) => apiUrl(`/api/models/${id}/rename`);
+const deleteModelApiUrl = (id: number) => apiUrl(`/api/models/${id}`);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const formatProcessedDate = (dateValue: string) => {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "Processed date unavailable";
-
   return `Processed ${date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -56,10 +56,228 @@ const formatProcessedDate = (dateValue: string) => {
   })}`;
 };
 
+const getDateGroup = (dateValue: string): string => {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "EARLIER";
+  const now = new Date();
+  const diffDays = Math.floor(
+    (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (diffDays < 1) return "TODAY";
+  if (diffDays < 7) return "THIS WEEK";
+  return "EARLIER";
+};
+
+type SortKey = "newest" | "lowest_aic" | "name";
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+interface ToastProps {
+  message: string;
+  onDone: () => void;
+}
+
+const Toast: React.FC<ToastProps> = ({ message, onDone }) => {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Mount → fade in
+    const showTimer = window.setTimeout(() => setVisible(true), 20);
+    // After 2s → fade out
+    const hideTimer = window.setTimeout(() => setVisible(false), 2000);
+    // After fade-out → remove
+    const doneTimer = window.setTimeout(onDone, 2350);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [onDone]);
+
+  return (
+    <div
+      style={{
+        transition: "opacity 0.3s ease, transform 0.3s ease",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(8px)",
+      }}
+      className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg"
+    >
+      {message}
+    </div>
+  );
+};
+
+// ─── SaveCard ─────────────────────────────────────────────────────────────────
+
+interface SaveCardProps {
+  model: BackendModel;
+  index: number;
+  isActive: boolean;
+  isDisabled: boolean;
+  onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  removing: boolean;
+}
+
+const SaveCard: React.FC<SaveCardProps> = ({
+  model,
+  index,
+  isActive,
+  isDisabled,
+  onOpen,
+  onRename,
+  onDelete,
+  removing,
+}) => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const displayName =
+    model.model_name?.trim() ||
+    model.notes?.trim() ||
+    `Save ${index + 1}`;
+
+  return (
+    <div
+      style={{
+        transition: "opacity 0.25s ease, transform 0.25s ease",
+        opacity: removing ? 0 : 1,
+        transform: removing ? "scale(0.97)" : "scale(1)",
+      }}
+      className={`overflow-hidden rounded-xl border bg-white shadow-sm transition-colors ${
+        isActive
+          ? "border-emerald-400 ring-1 ring-emerald-300"
+          : "border-slate-200 hover:border-slate-300"
+      }`}
+    >
+      {/* Main card row */}
+      <div className="flex items-start gap-3 px-4 py-4">
+        {/* Clickable info area */}
+        <button
+          type="button"
+          onClick={onOpen}
+          disabled={isDisabled}
+          className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
+        >
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-slate-900">
+              {displayName}
+            </span>
+            {isActive && (
+              <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                Active
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-slate-400">
+            {formatProcessedDate(model.created_at)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            <span className="font-medium text-slate-700">AIC</span>{" "}
+            {model.aic_score.toFixed(2)}
+            <span className="mx-1.5 text-slate-300">·</span>
+            Model {model.version}
+          </p>
+        </button>
+
+        {/* Actions */}
+        <div className="flex shrink-0 items-center gap-1 pt-0.5">
+          {/* Rename */}
+          <button
+            type="button"
+            onClick={onRename}
+            disabled={isDisabled}
+            title="Rename"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-3.5 w-3.5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+            </svg>
+          </button>
+
+          {/* Delete toggle */}
+          <button
+            type="button"
+            onClick={() => setConfirmOpen((v) => !v)}
+            disabled={isDisabled}
+            title="Delete"
+            className={`flex h-7 w-7 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              confirmOpen
+                ? "bg-red-100 text-red-600"
+                : "text-slate-400 hover:bg-red-50 hover:text-red-500"
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-3.5 w-3.5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Inline delete confirmation strip */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateRows: confirmOpen ? "1fr" : "0fr",
+          transition: "grid-template-rows 0.2s ease",
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className="flex items-center justify-between border-t border-red-100 bg-red-50 px-4 py-2.5">
+            <p className="text-xs text-red-700">
+              Delete{" "}
+              <span className="font-semibold">"{displayName}"</span>? This
+              can't be undone.
+            </p>
+            <div className="ml-4 flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onDelete();
+                }}
+                className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export const SavesPage: React.FC = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const retrainStartedAtRef = useRef<number | null>(null);
+
+  // ── Existing state (unchanged semantics) ──
   const [selectedFile, setSelectedFile] = useState<string>("");
   const [models, setModels] = useState<BackendModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,30 +288,77 @@ export const SavesPage: React.FC = () => {
   const [isRetraining, setIsRetraining] = useState(false);
   const [retrainStatus, setRetrainStatus] = useState<string>("");
   const [retrainElapsedSeconds, setRetrainElapsedSeconds] = useState(0);
-  const [successToast, setSuccessToast] = useState<string>("");
   const [isMutatingSave, setIsMutatingSave] = useState(false);
 
-  const getBackendSaveName = (model: BackendModel) => {
-    const typedName = model.model_name?.trim();
-    if (typedName) return typedName;
-    const notesName = model.notes?.trim();
-    if (notesName) return notesName;
-    return null;
+  // ── New UI state ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("newest");
+  const [activeModelId, setActiveModelId] = useState<number | null>(null);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string>("");
+  const [toastKey, setToastKey] = useState(0);
+
+  // ── Derived: most recent model version ──
+  const latestVersion = useMemo(() => {
+    if (!models.length) return null;
+    return [...models].sort((a, b) => b.id - a.id)[0].version;
+  }, [models]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setToastKey((k) => k + 1);
   };
 
-  const getDisplaySaveName = (model: BackendModel, index: number) =>
-    getBackendSaveName(model) ?? `Save ${index + 1}`;
+  const getDisplayName = (model: BackendModel, index: number) =>
+    model.model_name?.trim() || model.notes?.trim() || `Save ${index + 1}`;
+
+  // ── Filtered + sorted models ──
+  const processedModels = useMemo(() => {
+    let list = [...models];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter((m, i) =>
+        getDisplayName(m, i).toLowerCase().includes(q)
+      );
+    }
+
+    if (sortKey === "newest") {
+      list.sort((a, b) => b.id - a.id);
+    } else if (sortKey === "lowest_aic") {
+      list.sort((a, b) => a.aic_score - b.aic_score);
+    } else {
+      list.sort((a, b) =>
+        getDisplayName(a, 0).localeCompare(getDisplayName(b, 0))
+      );
+    }
+
+    return list;
+  }, [models, searchQuery, sortKey]);
+
+  // ── Date groups ──
+  const grouped = useMemo(() => {
+    const groups: Record<string, BackendModel[]> = {};
+    const order = ["TODAY", "THIS WEEK", "EARLIER"];
+    for (const m of processedModels) {
+      const g = getDateGroup(m.created_at);
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(m);
+    }
+    return order
+      .filter((g) => groups[g]?.length)
+      .map((g) => ({ label: g, items: groups[g] }));
+  }, [processedModels]);
+
+  // ─── Data fetching (unchanged) ─────────────────────────────────────────────
 
   const fetchModels = async (): Promise<BackendModel[]> => {
     try {
       setIsLoading(true);
       setLoadError("");
-
       const response = await fetch(MODELS_API_URL);
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(`Request failed with status ${response.status}`);
-      }
-
       const data: ModelsResponse = await response.json();
       setModels(data.available_models ?? []);
       return data.available_models ?? [];
@@ -114,17 +379,19 @@ export const SavesPage: React.FC = () => {
 
   useEffect(() => {
     if (!isRetraining) return;
-
     const intervalId = window.setInterval(() => {
       if (!retrainStartedAtRef.current) return;
       const elapsedMs = Date.now() - retrainStartedAtRef.current;
       setRetrainElapsedSeconds(Math.floor(elapsedMs / 1000));
     }, 500);
-
     return () => window.clearInterval(intervalId);
   }, [isRetraining]);
 
-  const handleOpenSave = (model: BackendModel) => {
+  // ─── Handlers (unchanged logic, UI toast added) ────────────────────────────
+
+  const handleOpenSave = (model: BackendModel, index: number) => {
+    setActiveModelId(model.id);
+    showToast(`Loaded "${getDisplayName(model, index)}"`);
     navigate("/simplified", {
       state: {
         selectedModelId: model.id,
@@ -134,7 +401,7 @@ export const SavesPage: React.FC = () => {
   };
 
   const handleRenameSave = async (model: BackendModel, index: number) => {
-    const currentName = getDisplaySaveName(model, index);
+    const currentName = getDisplayName(model, index);
     const proposed = window.prompt("Rename save", currentName);
     if (proposed === null) return;
     const nextName = proposed.trim();
@@ -142,52 +409,46 @@ export const SavesPage: React.FC = () => {
 
     try {
       setIsMutatingSave(true);
-      setSuccessToast("");
-
       const response = await fetch(renameModelApiUrl(model.id), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ new_model_name: nextName }),
       });
-
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(`Rename failed with status ${response.status}`);
-      }
-
       await fetchModels();
-      setSuccessToast("Save renamed.");
+      showToast("Save renamed.");
     } catch (error) {
       console.error("Rename save failed:", error);
-      setSuccessToast("Unable to rename save. Please try again.");
+      showToast("Unable to rename save. Please try again.");
     } finally {
       setIsMutatingSave(false);
     }
   };
 
-  const handleDeleteSave = async (model: BackendModel) => {
-    const confirmed = window.confirm(
-      "Delete this save? This will remove it from the backend model registry."
-    );
-    if (!confirmed) return;
-
+  const handleDeleteSave = async (model: BackendModel, index: number) => {
+    const name = getDisplayName(model, index);
     try {
+      setRemovingId(model.id);
       setIsMutatingSave(true);
-      setSuccessToast("");
+
+      // Let animation play
+      await new Promise((r) => window.setTimeout(r, 250));
 
       const response = await fetch(deleteModelApiUrl(model.id), {
         method: "DELETE",
       });
-
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(`Delete failed with status ${response.status}`);
-      }
 
+      if (activeModelId === model.id) setActiveModelId(null);
       await fetchModels();
-      setSuccessToast("Save deleted.");
+      showToast(`Deleted "${name}"`);
     } catch (error) {
       console.error("Delete save failed:", error);
-      setSuccessToast("Unable to delete save. Please try again.");
+      showToast("Unable to delete save. Please try again.");
     } finally {
+      setRemovingId(null);
       setIsMutatingSave(false);
     }
   };
@@ -221,11 +482,8 @@ export const SavesPage: React.FC = () => {
           "Upload failed. Please confirm the file format and try again.";
         try {
           const errorData = (await response.json()) as UploadErrorResponse;
-          if (errorData?.error?.message) {
-            errorMessage = errorData.error.message;
-          } else if (errorData?.message) {
-            errorMessage = errorData.message;
-          }
+          if (errorData?.error?.message) errorMessage = errorData.error.message;
+          else if (errorData?.message) errorMessage = errorData.message;
         } catch {
           errorMessage = `Upload failed with status ${response.status}`;
         }
@@ -237,7 +495,6 @@ export const SavesPage: React.FC = () => {
         `Upload complete. ${result.message} New records: ${result.new_records}.`
       );
       setIsUploadReady(true);
-
       await fetchModels();
     } catch (error: unknown) {
       console.error("Dataset upload failed:", error);
@@ -249,17 +506,13 @@ export const SavesPage: React.FC = () => {
       setIsUploadReady(false);
     } finally {
       setIsUploading(false);
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const handleRetrain = async () => {
     try {
       setIsRetraining(true);
-      setSuccessToast("");
       setRetrainElapsedSeconds(0);
       retrainStartedAtRef.current = Date.now();
       setRetrainStatus("Retraining pipeline started...");
@@ -283,9 +536,8 @@ export const SavesPage: React.FC = () => {
         body: JSON.stringify(retrainPayload),
       });
 
-      if (!retrainResponse.ok) {
+      if (!retrainResponse.ok)
         throw new Error(`Retrain failed with status ${retrainResponse.status}`);
-      }
 
       const retrainResult: RetrainResponse = await retrainResponse.json();
       setRetrainStatus(
@@ -293,9 +545,8 @@ export const SavesPage: React.FC = () => {
       );
 
       const updatedModels = await fetchModels();
-      if (!updatedModels.length) {
+      if (!updatedModels.length)
         throw new Error("No models available after retrain.");
-      }
 
       const latestModel = [...updatedModels].sort((a, b) => b.id - a.id)[0];
       setRetrainStatus(
@@ -307,18 +558,25 @@ export const SavesPage: React.FC = () => {
         fetch(apiUrl(`/api/advanced-metrics/${latestModel.id}`)),
       ]);
 
-      if (!dashboardResponse.ok || !advancedResponse.ok) {
+      if (!dashboardResponse.ok || !advancedResponse.ok)
         throw new Error("Model outputs are not ready yet.");
-      }
 
-      localStorage.setItem("xocompass:selectedModelId", String(latestModel.id));
+      localStorage.setItem(
+        "xocompass:selectedModelId",
+        String(latestModel.id)
+      );
       localStorage.setItem(
         "xocompass:selectedModelVersion",
         latestModel.version
       );
 
       const defaultName = `Model ${latestModel.version} (ID ${latestModel.id})`;
-      const chosenName = window.prompt("Name this save", defaultName)?.trim();
+      const getBackendSaveName = (m: BackendModel) =>
+        m.model_name?.trim() || m.notes?.trim() || null;
+      const chosenName = window
+        .prompt("Name this save", defaultName)
+        ?.trim();
+
       if (chosenName && chosenName !== getBackendSaveName(latestModel)) {
         try {
           await fetch(renameModelApiUrl(latestModel.id), {
@@ -336,9 +594,7 @@ export const SavesPage: React.FC = () => {
         ? Math.floor((Date.now() - retrainStartedAtRef.current) / 1000)
         : 0;
       setRetrainElapsedSeconds(elapsedSeconds);
-      setSuccessToast(
-        `Pipeline completed in ${elapsedSeconds}s. Loading updated dashboard...`
-      );
+      showToast(`Pipeline completed in ${elapsedSeconds}s. Loading dashboard...`);
 
       window.setTimeout(() => {
         navigate("/simplified", {
@@ -359,123 +615,162 @@ export const SavesPage: React.FC = () => {
     }
   };
 
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  const isDisabled = isUploading || isRetraining || isMutatingSave;
+
   return (
-    <div className="min-h-screen bg-gray-50 px-6 py-10">
-      <div className="mx-auto max-w-3xl rounded-2xl bg-white p-8 shadow-md">
-        <h1 className="text-2xl font-semibold text-slate-900">Saves</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Choose an existing save or start a new session with an updated
-          dataset.
-        </p>
+    <div className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
+      <div className="mx-auto max-w-2xl">
 
-        <div className="mt-8 space-y-4">
-          {isLoading && (
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              Loading saves from backend...
+        {/* ── Header ── */}
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+              Saves
+            </h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {models.length} session{models.length !== 1 ? "s" : ""}
+              {latestVersion && (
+                <>
+                  <span className="mx-1.5 text-slate-300">·</span>
+                  Model v{latestVersion}
+                </>
+              )}
             </p>
-          )}
-
-          {loadError && (
-            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {loadError}
-            </p>
-          )}
-
-          {!isLoading &&
-            !loadError &&
-            [...models]
-              .sort((a, b) => b.id - a.id)
-              .map((model, index) => (
-                <div
-                  key={model.id}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50/40"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenSave(model)}
-                      disabled={isUploading || isRetraining || isMutatingSave}
-                      className="flex-1 text-left"
-                    >
-                      <p className="text-base font-semibold text-slate-900">
-                        {getDisplaySaveName(model, index)}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        {formatProcessedDate(model.created_at)}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Model {model.version} | AIC {model.aic_score.toFixed(2)}
-                      </p>
-                    </button>
-
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleRenameSave(model, index)}
-                        disabled={isUploading || isRetraining || isMutatingSave}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSave(model)}
-                        disabled={isUploading || isRetraining || isMutatingSave}
-                        className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-          {!isLoading && !loadError && models.length === 0 && (
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              No saves available from backend yet.
-            </p>
-          )}
+          </div>
 
           <button
             type="button"
             onClick={handleNewSessionClick}
-            disabled={isUploading || isRetraining}
-            className="w-full rounded-xl border border-dashed border-teal-400 bg-teal-50/50 px-4 py-4 text-left transition hover:bg-teal-100/60"
+            disabled={isDisabled}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <p className="text-base font-semibold text-teal-700">New Session</p>
-            <p className="text-sm text-teal-600">
-              {isUploading
-                ? "Uploading dataset to backend..."
-                : "Prompt to upload updated dataset"}
-            </p>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+            New session
           </button>
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,.xlsx,.xls,.json"
-          className="hidden"
-          onChange={handleFileChange}
-        />
+        {/* ── Controls row ── */}
+        <div className="mb-5 flex gap-3">
+          {/* Search */}
+          <div className="relative flex-1">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search saves..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder-slate-400 shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
-        {selectedFile && (
-          <p className="mt-6 text-xs text-slate-500">
-            Selected dataset: {selectedFile}
+          {/* Sort */}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+          >
+            <option value="newest">Newest</option>
+            <option value="lowest_aic">Lowest AIC</option>
+            <option value="name">Name</option>
+          </select>
+        </div>
+
+        {/* ── Content area ── */}
+        {isLoading && (
+          <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+            Loading saves…
           </p>
         )}
 
-        {uploadStatus && (
-          <p className="mt-2 text-xs text-slate-600">{uploadStatus}</p>
+        {loadError && (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {loadError}
+          </p>
         )}
 
+        {!isLoading && !loadError && (
+          <>
+            {grouped.length === 0 && (
+              <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                {searchQuery
+                  ? "No saves match your search."
+                  : "No saves yet. Start a new session to create one."}
+              </p>
+            )}
+
+            {grouped.map(({ label, items }) => (
+              <div key={label} className="mb-6">
+                {/* Group label */}
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                  {label}
+                </p>
+
+                <div className="space-y-2">
+                  {items.map((model, i) => (
+                    <SaveCard
+                      key={model.id}
+                      model={model}
+                      index={models.indexOf(model)}
+                      isActive={activeModelId === model.id}
+                      isDisabled={isDisabled}
+                      onOpen={() => handleOpenSave(model, models.indexOf(model))}
+                      onRename={() =>
+                        handleRenameSave(model, models.indexOf(model))
+                      }
+                      onDelete={() =>
+                        handleDeleteSave(model, models.indexOf(model))
+                      }
+                      removing={removingId === model.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* ── Upload status ── */}
+        {selectedFile && (
+          <p className="mt-4 text-xs text-slate-400">
+            Selected: {selectedFile}
+          </p>
+        )}
+        {uploadStatus && (
+          <p className="mt-1 text-xs text-slate-500">{uploadStatus}</p>
+        )}
+
+        {/* ── Retrain panel ── */}
         {isUploadReady && (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
             <p className="text-sm font-semibold text-emerald-700">
-              Dataset ready. You can start retraining.
+              Dataset ready. Start retraining?
             </p>
-            <p className="mt-1 text-xs text-emerald-700/80">
-              This will run the full backend pipeline and refresh model outputs.
+            <p className="mt-1 text-xs text-emerald-600/80">
+              Runs the full backend pipeline and refreshes model outputs.
             </p>
             <button
               type="button"
@@ -489,16 +784,20 @@ export const SavesPage: React.FC = () => {
         )}
 
         {retrainStatus && (
-          <p className="mt-3 text-xs text-slate-600">{retrainStatus}</p>
-        )}
-
-        {successToast && (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-            {successToast}
-          </div>
+          <p className="mt-3 text-xs text-slate-500">{retrainStatus}</p>
         )}
       </div>
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.xlsx,.xls,.json"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* ── Retraining overlay (unchanged) ── */}
       {isRetraining && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-xl">
@@ -507,13 +806,22 @@ export const SavesPage: React.FC = () => {
               Retraining in progress
             </p>
             <p className="mt-2 text-sm text-slate-600">
-              Running ingestion, retrain, and evaluation. Please wait...
+              Running ingestion, retrain, and evaluation. Please wait…
             </p>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-400">
               Elapsed: {retrainElapsedSeconds}s
             </p>
           </div>
         </div>
+      )}
+
+      {/* ── Toast ── */}
+      {toastMessage && (
+        <Toast
+          key={toastKey}
+          message={toastMessage}
+          onDone={() => setToastMessage("")}
+        />
       )}
     </div>
   );
