@@ -456,7 +456,7 @@ export const SimplifiedMetrics: React.FC = () => {
 
         <div className="grid gap-4 md:grid-cols-3">
           <MetricCard
-            label="Total Records"
+            label="Total Bookings"
             value={(dashboardStats?.total_records ?? 34582).toLocaleString("en-US")}
             helper="Transactions in model-ready dataset"
             trendLabel="Loaded from deployed model stats"
@@ -476,7 +476,7 @@ export const SimplifiedMetrics: React.FC = () => {
             trendLabel={
               growthDirection === "up"
                 ? "Accelerating growth trajectory"
-                : "Demand is cooling vs prior period"
+                : "Demand is cooling vs previous year"
             }
             trendDirection={growthDirection}
             accent="teal"
