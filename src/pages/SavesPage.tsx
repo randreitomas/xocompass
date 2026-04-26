@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiUrl } from "../lib/api";
+import { SimplifiedMetrics } from "./SimplifiedMetrics";
+import { Sidebar } from "../components/layout/Sidebar";
+import { Header } from "../components/layout/Header";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -620,8 +623,26 @@ export const SavesPage: React.FC = () => {
   const isDisabled = isUploading || isRetraining || isMutatingSave;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
-      <div className="mx-auto max-w-2xl">
+    <div className="relative min-h-screen overflow-hidden bg-slate-50">
+      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none select-none">
+        <div className="h-[114dvh] min-h-[860px] w-[114vw] min-w-[1200px] -translate-x-[7vw] -translate-y-[5vh] origin-top-left scale-[0.3] transform-gpu md:scale-[0.70] xl:scale-95">
+          <div className="h-full w-full overflow-hidden bg-gray-50 text-slate-900">
+            <div className="flex h-full">
+              <Sidebar isCollapsed={false} onToggle={() => undefined} />
+              <div className="ml-64 flex flex-1 flex-col">
+                <Header pageTitle="Business Analytics Dashboard" />
+                <main className="flex-1 overflow-hidden bg-gray-50 p-8">
+                  <SimplifiedMetrics isBackgroundPreview={true} />
+                </main>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="fixed inset-0 z-10 pointer-events-none bg-white/30 backdrop-blur-md" />
+
+      <div className="relative z-20 flex min-h-screen items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-2xl rounded-2xl border border-white/30 bg-white/85 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-[64px] sm:p-8">
 
         {/* ── Header ── */}
         <div className="mb-6 flex items-start justify-between gap-4">
@@ -718,7 +739,7 @@ export const SavesPage: React.FC = () => {
               <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
                 {searchQuery
                   ? "No saves match your search."
-                  : "No saves yet. Start a new session to create one."}
+                  : "No saves yet. Upload your first KJS booking dataset to unlock the live dashboard."}
               </p>
             )}
 
@@ -786,6 +807,7 @@ export const SavesPage: React.FC = () => {
         {retrainStatus && (
           <p className="mt-3 text-xs text-slate-500">{retrainStatus}</p>
         )}
+        </div>
       </div>
 
       {/* Hidden file input */}

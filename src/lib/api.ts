@@ -1,10 +1,9 @@
 /**
- * Prefer same-origin `/backend` in production (Vercel rewrite avoids CORS).
+ * Prefer same-origin `/backend` in all environments to avoid CORS.
+ * In development, Vite proxy forwards `/backend` to the real API.
  * Override anytime via `VITE_API_BASE_URL`.
  */
-const DEFAULT_API_BASE_URL = import.meta.env.PROD
-  ? "/backend"
-  : "https://xocompass-backend-572370238000.asia-southeast1.run.app";
+const DEFAULT_API_BASE_URL = "/backend";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 

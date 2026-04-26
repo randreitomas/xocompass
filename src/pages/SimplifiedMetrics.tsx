@@ -13,11 +13,13 @@ import {
   Legend,
 } from "recharts";
 import { Download } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
 import { ChartContainer } from "../components/ui/ChartContainer";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { apiUrl } from "../lib/api";
+import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
+import { SavesModal } from "../components/modals/SavesModal";
 
 const fallbackForecastData = [
   { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
@@ -76,6 +78,19 @@ interface MetricsRouteState {
   selectedModelVersion?: string;
 }
 
+interface BackendModel {
+  id: number;
+  version: string;
+}
+
+interface ModelsResponse {
+  available_models: BackendModel[];
+}
+
+interface SimplifiedMetricsProps {
+  isBackgroundPreview?: boolean;
+}
+
 const formatCompactRevenue = (value: number) => {
   const compact = new Intl.NumberFormat("en-US", {
     notation: "compact",
@@ -85,7 +100,10 @@ const formatCompactRevenue = (value: number) => {
   return `₱${compact.toUpperCase()}`;
 };
 
-export const SimplifiedMetrics: React.FC = () => {
+export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
+  isBackgroundPreview = false,
+}) => {
+  const navigate = useNavigate();
   const location = useLocation();
   const routeState = (location.state as MetricsRouteState | null) ?? null;
   const storedModelId = (() => {
@@ -114,8 +132,45 @@ export const SimplifiedMetrics: React.FC = () => {
     useState<DashboardStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [models, setModels] = useState<BackendModel[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
 
   useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        setIsLoadingModels(true);
+        const response = await fetch(apiUrl("/api/models"));
+        if (response.status === 404) {
+          setModels([]);
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const data: ModelsResponse = await response.json();
+        setModels(data.available_models ?? []);
+      } catch (error) {
+        console.error("Unable to load models:", error);
+        setModels([]);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
+
+  const hasNoData = !isLoadingModels && models.length === 0;
+  const shouldShowColdStart = hasNoData && !isBackgroundPreview;
+
+  useEffect(() => {
+    if (shouldShowColdStart) {
+      setDashboardStats(null);
+      setIsLoading(false);
+      setLoadError("");
+      return;
+    }
+
     const fetchDashboardStats = async () => {
       try {
         setIsLoading(true);
@@ -140,7 +195,7 @@ export const SimplifiedMetrics: React.FC = () => {
     };
 
     fetchDashboardStats();
-  }, [selectedModelId]);
+  }, [selectedModelId, shouldShowColdStart]);
 
   useEffect(() => {
     try {
@@ -189,7 +244,12 @@ export const SimplifiedMetrics: React.FC = () => {
   }, [dashboardStats]);
 
   return (
-    <div className="min-h-full bg-[#F4FFF8] px-6 py-6 -m-8">
+    <div className="relative min-h-full">
+      <div
+        className={`min-h-full bg-[#F4FFF8] px-6 py-6 -m-8 ${
+          shouldShowColdStart ? "pointer-events-none select-none grayscale saturate-0" : ""
+        }`}
+      >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-slate-900">
@@ -224,6 +284,10 @@ export const SimplifiedMetrics: React.FC = () => {
       )}
 
       <div className="mt-6 space-y-8">
+      {shouldShowColdStart ? (
+        <SkeletonDashboard />
+      ) : (
+      <>
 
       <ChartContainer
         title="Booking Forecast"
@@ -523,7 +587,25 @@ export const SimplifiedMetrics: React.FC = () => {
           </div>
         </div>
       </section>
+      </>
+      )}
       </div>
+    </div>
+      {shouldShowColdStart && (
+        <>
+          <div className="pointer-events-none fixed inset-0 z-30 bg-white/35 backdrop-blur-2xl" />
+          <div className="relative z-50">
+            <SavesModal
+              open={true}
+              lockOpen={true}
+              title="Upload your first KJS booking dataset"
+              description="XoCompass is ready. Upload a dataset to generate your first model, then we will unlock live KPI cards, forecasts, and dashboard insights."
+              actionLabel="Go to Saves and Upload"
+              onAction={() => navigate("/saves")}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };
