@@ -9,20 +9,15 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Legend,
-  ComposedChart,
   Area,
+  Legend,
 } from "recharts";
 import { Download } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { MetricCard } from "../components/ui/MetricCard";
 import { ChartContainer } from "../components/ui/ChartContainer";
 import { StatusBadge } from "../components/ui/StatusBadge";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const BACKEND_BASE_URL =
-  "https://xocompass-backend-572370238000.asia-southeast1.run.app";
+import { apiUrl } from "../lib/api";
 
 const fallbackForecastData = [
   { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
@@ -52,8 +47,6 @@ const fallbackBookingsByYearData = [
   { year: 2025, bookings: 34582 },
 ];
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface ForecastPoint {
   month: string;
   actual: number;
@@ -63,7 +56,7 @@ interface ForecastPoint {
 }
 
 interface BookingsByYearPoint {
-  year: string | number; // API returns year as a string e.g. "2013"
+  year: number;
   bookings: number;
 }
 
@@ -75,7 +68,7 @@ interface DashboardStatsResponse {
   expected_bookings: number;
   peak_travel_period: string;
   bookings_forecast: ForecastPoint[];
-  yearly_bookings?: BookingsByYearPoint[]; // actual API field name
+  bookings_by_year?: BookingsByYearPoint[];
 }
 
 interface MetricsRouteState {
@@ -83,46 +76,35 @@ interface MetricsRouteState {
   selectedModelVersion?: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 const formatCompactRevenue = (value: number) => {
   const compact = new Intl.NumberFormat("en-US", {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+
   return `₱${compact.toUpperCase()}`;
 };
-
-const readLocalStorage = (key: string): string | null => {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const writeLocalStorage = (key: string, value: string): void => {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Ignore in restricted environments.
-  }
-};
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export const SimplifiedMetrics: React.FC = () => {
   const location = useLocation();
   const routeState = (location.state as MetricsRouteState | null) ?? null;
-
   const storedModelId = (() => {
-    const raw = readLocalStorage("xocompass:selectedModelId");
-    if (!raw) return null;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
+    try {
+      const rawValue = localStorage.getItem("xocompass:selectedModelId");
+      if (!rawValue) return null;
+      const parsed = Number(rawValue);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   })();
-
-  const storedModelVersion = readLocalStorage("xocompass:selectedModelVersion");
+  const storedModelVersion = (() => {
+    try {
+      return localStorage.getItem("xocompass:selectedModelVersion");
+    } catch {
+      return null;
+    }
+  })();
 
   const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
   const selectedModelVersion =
@@ -133,104 +115,85 @@ export const SimplifiedMetrics: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  // Persist resolved model selection
   useEffect(() => {
-    writeLocalStorage("xocompass:selectedModelId", String(selectedModelId));
-    writeLocalStorage("xocompass:selectedModelVersion", selectedModelVersion);
-  }, [selectedModelId, selectedModelVersion]);
-
-  // Fetch dashboard stats from backend
-  useEffect(() => {
-    let cancelled = false;
-
     const fetchDashboardStats = async () => {
-      setIsLoading(true);
-      setLoadError("");
-
       try {
-        const url = `${BACKEND_BASE_URL}/api/dashboard-stats/${selectedModelId}`;
-        const response = await fetch(url, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
+        setIsLoading(true);
+        setLoadError("");
+
+        const response = await fetch(
+          apiUrl(`/api/dashboard-stats/${selectedModelId}`)
+        );
 
         if (!response.ok) {
-          throw new Error(
-            `Server returned ${response.status} ${response.statusText}`
-          );
+          throw new Error(`Request failed with status ${response.status}`);
         }
 
         const data: DashboardStatsResponse = await response.json();
-        if (!cancelled) setDashboardStats(data);
+        setDashboardStats(data);
       } catch (error) {
-        console.error("[SimplifiedMetrics] Failed to fetch dashboard stats:", error);
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "Unable to load model dashboard stats."
-          );
-        }
+        console.error("Unable to load dashboard stats:", error);
+        setLoadError("Unable to load model dashboard stats.");
       } finally {
-        if (!cancelled) setIsLoading(false);
+        setIsLoading(false);
       }
     };
 
     fetchDashboardStats();
-    return () => {
-      cancelled = true;
-    };
   }, [selectedModelId]);
 
-  // ── Derived values ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem("xocompass:selectedModelId", String(selectedModelId));
+      localStorage.setItem("xocompass:selectedModelVersion", selectedModelVersion);
+    } catch {
+      // Ignore localStorage errors in restricted environments.
+    }
+  }, [selectedModelId, selectedModelVersion]);
 
   const growthRate = dashboardStats?.growth_rate ?? 15.3;
   const growthDirection = growthRate >= 0 ? "up" : "down";
   const growthLabel = `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%`;
-
-  // Use backend forecast data when available, otherwise fall back
-  const chartData: ForecastPoint[] =
-    dashboardStats?.bookings_forecast &&
+  const chartData =
+    dashboardStats?.bookings_forecast?.length &&
     dashboardStats.bookings_forecast.length > 0
       ? dashboardStats.bookings_forecast
       : fallbackForecastData;
 
   const expectedBookingsTrendLabel = useMemo(() => {
-    if (!chartData || chartData.length < 2) return "Baseline forecast available";
+    if (!chartData || chartData.length < 2) {
+      return "Baseline forecast available";
+    }
+
     const first = chartData[0].predicted;
     const last = chartData[chartData.length - 1].predicted;
     if (first === 0) return "Forecast trend unavailable";
+
     const pct = ((last - first) / first) * 100;
     return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% across forecast window`;
   }, [chartData]);
 
   const bookingsByYearData = useMemo(() => {
-    const raw = dashboardStats?.yearly_bookings; // correct API field name
+    const raw = dashboardStats?.bookings_by_year;
     if (raw && raw.length > 0) {
       return raw
-        .map((p) => ({
-          year: Number(p.year), // API returns year as string — coerce to number
-          bookings: p.bookings,
-        }))
-        .filter((p) => Number.isFinite(p.year) && Number.isFinite(p.bookings))
+        .filter((point) => Number.isFinite(point.year) && Number.isFinite(point.bookings))
+        .slice()
         .sort((a, b) => a.year - b.year);
     }
+
     return fallbackBookingsByYearData;
   }, [dashboardStats]);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-full bg-[#F4FFF8] px-6 py-6 -m-8">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-slate-900">
             Dashboard
           </h1>
           <p className="mt-1 text-[14px] text-slate-600">
-            High-level performance overview for KJS POS and travel demand
-            analytics.{" "}
+            High-level performance overview for KJS POS and travel demand analytics.{" "}
             <span className="font-medium text-slate-700">
               Model {selectedModelVersion} (ID {selectedModelId})
             </span>
@@ -245,304 +208,320 @@ export const SimplifiedMetrics: React.FC = () => {
         </div>
       </div>
 
-      {/* Status banners */}
       {isLoading && (
         <p className="mt-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-600 shadow-sm">
-          Loading dashboard stats…
+          Loading dashboard stats from backend...
         </p>
       )}
 
-      {!isLoading && loadError && (
+      {loadError && (
         <p className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[14px] text-red-700 shadow-sm">
-          ⚠ {loadError} — showing fallback data where needed.
-        </p>
-      )}
-
-      {!isLoading && !loadError && dashboardStats && (
-        <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[14px] text-emerald-700 shadow-sm">
-          ✓ Live data loaded from Model {selectedModelVersion} (ID {selectedModelId}).
+          {loadError} Showing fallback data where needed.
         </p>
       )}
 
       <div className="mt-6 space-y-8">
-        {/* ── Booking Forecast Chart ─────────────────────────────────────────── */}
-        <ChartContainer
-          title="Booking Forecast"
-          description="Forecast comparison with confidence intervals."
-          headerMeta={
-            <span>Snapshot as of {new Date().toLocaleDateString("en-US")}</span>
-          }
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            {/*
-              Fix: Area components must live inside ComposedChart (or AreaChart),
-              NOT inside LineChart. Using ComposedChart allows mixing Area + Line.
-            */}
-            <ComposedChart data={chartData} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-              <XAxis
-                dataKey="month"
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 11, fill: "#6B7280" }}
-              />
-              <YAxis
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 11, fill: "#6B7280" }}
-              />
-              <Tooltip
-                contentStyle={{
-                  borderRadius: 12,
-                  borderColor: "#E5E7EB",
-                  fontSize: 12,
-                }}
-              />
-              <Legend verticalAlign="top" height={32} />
 
-              {/* CI band — rendered as areas so they layer correctly */}
-              <Area
-                type="monotone"
-                dataKey="upperCI"
-                name="Upper CI"
-                stroke="none"
-                fill="rgba(13, 148, 136, 0.12)"
-                activeDot={false}
-                legendType="none"
-              />
-              <Area
-                type="monotone"
-                dataKey="lowerCI"
-                name="Lower CI"
-                stroke="none"
-                fill="#FFFFFF"
-                activeDot={false}
-                legendType="none"
-              />
+      <ChartContainer
+        title="Booking Forecast"
+        description="Forecast comparison for Jan–Sep 2026."
+        headerMeta={
+          <span>Snapshot as of {new Date().toLocaleDateString("en-US")}</span>
+        }
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ left: -20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+            <XAxis
+              dataKey="month"
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 11, fill: "#6B7280" }}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 11, fill: "#6B7280" }}
+            />
+            <Tooltip
+              contentStyle={{
+                borderRadius: 12,
+                borderColor: "#E5E7EB",
+                fontSize: 12,
+              }}
+            />
+            <Legend verticalAlign="top" height={32} />
+            <Area
+              type="monotone"
+              dataKey="upperCI"
+              name="Upper CI"
+              stroke="none"
+              fill="rgba(107, 114, 128, 0.25)"
+              activeDot={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="lowerCI"
+              name="Lower CI"
+              stroke="none"
+              fill="#FFFFFF"
+              activeDot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="actual"
+              name="Actual"
+              stroke="#0F172A"
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="predicted"
+              name="Predicted"
+              stroke="#0D9488"
+              strokeWidth={2}
+              strokeDasharray="4 2"
+              dot={{ r: 3 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartContainer>
 
-              {/* Primary lines */}
-              <Line
-                type="monotone"
-                dataKey="actual"
-                name="Actual"
-                stroke="#0F172A"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="predicted"
-                name="Predicted"
-                stroke="#0D9488"
-                strokeWidth={2}
-                strokeDasharray="4 2"
-                dot={{ r: 3 }}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </ChartContainer>
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
+            Expected Bookings
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(dashboardStats?.expected_bookings ?? 2847).toLocaleString("en-US")}
+          </p>
+          <p
+            className={`mt-1 text-sm font-medium ${
+              growthDirection === "up" ? "text-emerald-600" : "text-amber-600"
+            }`}
+          >
+            {expectedBookingsTrendLabel}
+          </p>
+          <p className="mt-3 text-sm text-slate-500">
+            Forecasted bookings from the selected saved model.
+          </p>
+        </div>
 
-        {/* ── Expected Bookings + Peak Period ───────────────────────────────── */}
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
-              Expected Bookings
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-slate-900">
-              {(dashboardStats?.expected_bookings ?? 2847).toLocaleString(
-                "en-US"
-              )}
-            </p>
-            <p
-              className={`mt-1 text-sm font-medium ${
-                growthDirection === "up"
-                  ? "text-emerald-600"
-                  : "text-amber-600"
-              }`}
-            >
-              {expectedBookingsTrendLabel}
-            </p>
-            <p className="mt-3 text-sm text-slate-500">
-              Forecasted bookings from the selected saved model.
-            </p>
-          </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
+            Peak Travel Period
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {dashboardStats?.peak_travel_period ?? "Apr – Jun 2026"}
+          </p>
+          <p className="mt-3 text-sm text-slate-500">
+            Peak period detected from the currently selected model run.
+          </p>
+        </div>
+      </section>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
-              Peak Travel Period
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-slate-900">
-              {dashboardStats?.peak_travel_period ?? "Apr – Jun 2026"}
-            </p>
-            <p className="mt-3 text-sm text-slate-500">
-              Peak period detected from the currently selected model run.
-            </p>
-          </div>
-        </section>
-
-        {/* ── Strategic Actions ──────────────────────────────────────────────── */}
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                Strategic Actions
-              </h2>
-              <span className="text-sm text-slate-500">
-                Suggested by XoCompass
-              </span>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[
-                {
-                  n: 1,
-                  title: "Launch Early Bird Campaign",
-                  badge: { label: "Peak Season", tone: "success" as const },
-                  body: "Offer tiered discounts for bookings made 60+ days before travel to smooth demand spikes in Apr–Jun.",
-                },
-                {
-                  n: 2,
-                  title: "Optimize Channel Mix",
-                  badge: { label: "Digital Focus", tone: "warning" as const },
-                  body: "Shift 8–10% of offline spend into high-performing digital channels with better cost-per-booking.",
-                },
-                {
-                  n: 3,
-                  title: "Build Family Value Packs",
-                  badge: { label: "Revenue Uplift", tone: "success" as const },
-                  body: "Bundle accommodations, activities, and transfers with dynamic pricing rules for 3–5 member family groups.",
-                },
-                {
-                  n: 4,
-                  title: "Strengthen Ancillary Upsell at Checkout",
-                  badge: { label: "Cross-Sell", tone: "warning" as const },
-                  body: "Surface insurance, transfers, and activity add-ons with personalized recommendations to lift attach rates.",
-                },
-                {
-                  n: 5,
-                  title: "Improve Repeat-Booker Loyalty Program",
-                  badge: { label: "Retention", tone: "success" as const },
-                  body: "Reward advance bookers and multi-trip families with tiered benefits to lock in the 23% high-value segment.",
-                },
-                {
-                  n: 6,
-                  title: "Proactive Capacity & Contracting",
-                  badge: { label: "Operations", tone: "default" as const },
-                  body: "Secure additional capacity and supplier contracts ahead of Apr–Jun peak to avoid shortfalls and last-minute premiums.",
-                },
-              ].map(({ n, title, badge, body }) => (
-                <div key={n} className="flex gap-3 rounded-lg bg-slate-50 p-4">
-                  <div className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
-                    {n}
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {title}
-                      </p>
-                      <StatusBadge label={badge.label} tone={badge.tone} />
-                    </div>
-                    <p className="mt-1 text-sm text-slate-600">{body}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ── Historical Data Overview ───────────────────────────────────────── */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900">
-              Historical Data Overview
+              Strategic Actions
             </h2>
-            {dashboardStats && (
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                Live
-              </span>
-            )}
+            <span className="text-sm text-slate-500">
+              Suggested by XoCompass
+            </span>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard
-              label="Total Records"
-              value={(dashboardStats?.total_records ?? 34582).toLocaleString(
-                "en-US"
-              )}
-              helper="Transactions in model-ready dataset"
-              trendLabel="Loaded from deployed model stats"
-              trendDirection="up"
-            />
-            <MetricCard
-              label="Revenue (₱)"
-              value={formatCompactRevenue(
-                dashboardStats?.revenue_total ?? 38200000
-              )}
-              helper="Total recognized revenue"
-              trendLabel={`${growthLabel} YoY`}
-              trendDirection={growthDirection}
-            />
-            <MetricCard
-              label="Growth Rate"
-              value={growthLabel}
-              helper="Bookings & revenue"
-              trendLabel={
-                growthDirection === "up"
-                  ? "Accelerating growth trajectory"
-                  : "Demand is cooling vs prior period"
-              }
-              trendDirection={growthDirection}
-              accent="teal"
-            />
-          </div>
-
-          {/* Bookings Over Time bar chart */}
-          <div className="mt-6">
-            <div className="mb-3 flex items-start justify-between gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                1
+              </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Bookings Over Time
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Total number of bookings per year.
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Launch Early Bird Campaign
+                  </p>
+                  <StatusBadge label="Peak Season" tone="success" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Offer tiered discounts for bookings made 60+ days before
+                  travel to smooth demand spikes in Apr–Jun.
                 </p>
               </div>
             </div>
 
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={bookingsByYearData} margin={{ left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                  <XAxis
-                    dataKey="year"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 12,
-                      borderColor: "#E5E7EB",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar
-                    dataKey="bookings"
-                    name="Bookings"
-                    fill="#0D9488"
-                    radius={[8, 8, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                2
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Optimize Channel Mix
+                  </p>
+                  <StatusBadge label="Digital Focus" tone="warning" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Shift 8–10% of offline spend into high-performing digital
+                  channels with better cost-per-booking.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                3
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Build Family Value Packs
+                  </p>
+                  <StatusBadge label="Revenue Uplift" tone="success" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Bundle accommodations, activities, and transfers with dynamic
+                  pricing rules for 3–5 member family groups.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                4
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Strengthen Ancillary Upsell at Checkout
+                  </p>
+                  <StatusBadge label="Cross-Sell" tone="warning" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Surface insurance, transfers, and activity add-ons with
+                  personalized recommendations to lift attach rates.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                5
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Improve Repeat-Booker Loyalty Program
+                  </p>
+                  <StatusBadge label="Retention" tone="success" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Reward advance bookers and multi-trip families with tiered
+                  benefits to lock in the 23% high-value segment.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 rounded-lg bg-slate-50 p-4">
+              <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-sm font-semibold text-white">
+                6
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Proactive Capacity & Contracting
+                  </p>
+                  <StatusBadge label="Operations" tone="default" />
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Secure additional capacity and supplier contracts ahead of
+                  Apr–Jun peak to avoid shortfalls and last-minute premiums.
+                </p>
+              </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Historical Data Overview
+          </h2>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <MetricCard
+            label="Total Records"
+            value={(dashboardStats?.total_records ?? 34582).toLocaleString("en-US")}
+            helper="Transactions in model-ready dataset"
+            trendLabel="Loaded from deployed model stats"
+            trendDirection="up"
+          />
+          <MetricCard
+            label="Revenue (₱)"
+            value={formatCompactRevenue(dashboardStats?.revenue_total ?? 38200000)}
+            helper="Total recognized revenue"
+            trendLabel={`${growthLabel} YoY`}
+            trendDirection={growthDirection}
+          />
+          <MetricCard
+            label="Growth Rate"
+            value={growthLabel}
+            helper="Bookings & revenue"
+            trendLabel={
+              growthDirection === "up"
+                ? "Accelerating growth trajectory"
+                : "Demand is cooling vs prior period"
+            }
+            trendDirection={growthDirection}
+            accent="teal"
+          />
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-3 flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Bookings Over Time
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Total number of bookings per year.
+              </p>
+            </div>
+          </div>
+
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bookingsByYearData} margin={{ left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="year"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: 12,
+                    borderColor: "#E5E7EB",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="bookings" name="Bookings" fill="#0D9488" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </section>
       </div>
     </div>
   );
 };
+
