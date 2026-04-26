@@ -56,7 +56,7 @@ interface ForecastPoint {
 }
 
 interface BookingsByYearPoint {
-  year: number;
+  year: number | string;
   bookings: number;
 }
 
@@ -68,7 +68,7 @@ interface DashboardStatsResponse {
   expected_bookings: number;
   peak_travel_period: string;
   bookings_forecast: ForecastPoint[];
-  bookings_by_year?: BookingsByYearPoint[];
+  yearly_bookings: BookingsByYearPoint[];
 }
 
 interface MetricsRouteState {
@@ -174,14 +174,17 @@ export const SimplifiedMetrics: React.FC = () => {
   }, [chartData]);
 
   const bookingsByYearData = useMemo(() => {
-    const raw = dashboardStats?.bookings_by_year;
+    const raw = dashboardStats?.yearly_bookings; // ← renamed
     if (raw && raw.length > 0) {
       return raw
+        .map((point) => ({
+          year: Number(point.year), // ← coerce string → number
+          bookings: point.bookings,
+        }))
         .filter((point) => Number.isFinite(point.year) && Number.isFinite(point.bookings))
-        .slice()
         .sort((a, b) => a.year - b.year);
     }
-
+  
     return fallbackBookingsByYearData;
   }, [dashboardStats]);
 
@@ -524,4 +527,3 @@ export const SimplifiedMetrics: React.FC = () => {
     </div>
   );
 };
-
