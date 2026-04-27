@@ -19,15 +19,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ pageTitle }) => {
         />
 
         <div
-          className={`flex min-w-0 flex-1 flex-col transition-all duration-200 ${
-            isSidebarCollapsed ? "pl-20" : "pl-64"
+          className={`flex flex-1 flex-col transition-all duration-200 ${
+            isSidebarCollapsed ? "ml-20" : "ml-64"
           }`}
         >
           <Header pageTitle={pageTitle} />
-          <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-8">
-            <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch [&>*]:w-full [&>*]:min-w-0 [&>*]:max-w-none [&>*]:self-stretch">
-              <Outlet />
-            </div>
+          <main className="flex-1 overflow-y-auto bg-gray-50 p-8">
+            <Outlet />
           </main>
         </div>
       </div>
