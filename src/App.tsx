@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { MainLayout } from "./layouts/MainLayout";
 import { SimplifiedMetrics } from "./pages/SimplifiedMetrics";
+import { ForecastActions } from "./pages/ForecastActions";
 import { AdvancedMetrics } from "./pages/AdvancedMetrics";
 import { FaqsPage } from "./pages/FaqsPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -22,6 +23,7 @@ const App: React.FC = () => {
         element={<MainLayout pageTitle="Business Analytics Dashboard" />}
       >
         <Route path="/simplified" element={<SimplifiedMetrics />} />
+        <Route path="/forecast-actions" element={<ForecastActions />} />
         <Route path="/advanced" element={<AdvancedMetrics />} />
         <Route path="/faqs" element={<FaqsPage />} />
       </Route>

@@ -1,0 +1,50 @@
+---
+alwaysApply: true
+---
+
+Review `agents.md` for project context. 
+
+Task: Refactor the main `DashboardUI` to support a 3-tab navigation system: "Business Analytics", "Forecast & Actions", and "Advanced Metrics". 
+
+Constraints to save tokens:
+1. DO NOT implement the Chart.js/D3.js rendering logic yet. 
+2. Create standard Tailwind CSS placeholder cards for all visual components.
+3. Define the TypeScript interfaces for the props each component will eventually need.
+
+Implement the following layout structure using responsive CSS Grids:
+
+### Tab 1: Business Analytics
+Row 1 (4 cols):
+- Card: Total Records
+- Card: Total Revenue
+- Card: Date Coverage
+- Card: Average Lead Time
+Row 2 (1 col):
+- Placeholder: Bookings Over Time (yearly line chart)
+Row 3 (2 cols):
+- Placeholder: Top Airlines (bar chart)
+- Placeholder: Lead Time Distribution (histogram)
+
+### Tab 2: Forecast & Actions
+Row 1 (2 cols):
+- Card: Forecasted Bookings (Next 2 weeks total)
+- Card: Highest Forecast Week
+Row 2 (2 cols):
+- Placeholder: Weekly Booking Demand Graph (Forecast vs Actual)
+- Placeholder: Exogenous Variables Heatmap (Correlation analysis)
+Row 3 (1 col):
+- Table/List: Critical Forecast Weeks (Columns: Week, Forecasted Volume, Risk Factor [High/Medium/Low])
+
+### Tab 3: Advanced Metrics
+Row 1 (6 cols or 2x3 grid):
+- Card: WMAPE
+- Card: MAE
+- Card: RMSE
+- Card: Ljung-Box p-value
+- Card: Selected Order (pdq)
+- Card: Seasonal Order (PDQs)
+Row 2 (2 cols):
+- Placeholder: Residual Distribution Graph
+- List/Tags: SARIMAX Variables (Target variable + Exogenous inputs e.g., holiday_lead, is_long_weekend, storm_flag)
+
+Create the necessary folder structure for these components and wire up the basic state to switch between the 3 tabs.

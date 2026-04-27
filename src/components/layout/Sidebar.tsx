@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
+  TrendingUp,
   LineChart,
   HelpCircle,
   User,
@@ -69,6 +70,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         >
           <LayoutDashboard size={16} />
           {!isCollapsed && <span>Business Analytics</span>}
+        </NavLink>
+
+        <NavLink
+          to="/forecast-actions"
+          className={({ isActive }) =>
+            `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
+          }
+          title="Forecast & Actions"
+        >
+          <TrendingUp size={16} />
+          {!isCollapsed && <span>Forecast & Actions</span>}
         </NavLink>
 
         <NavLink
