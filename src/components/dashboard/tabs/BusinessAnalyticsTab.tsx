@@ -241,8 +241,8 @@ const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) 
   const piePalette = ["#0D9488", "#14B8A6", "#22D3EE", "#60A5FA", "#818CF8", "#A78BFA"];
 
   return (
-    <div className="mt-4 flex h-[17rem] gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <div className="relative h-full w-[46%] min-w-[10rem]">
+    <div className="mt-4 grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 xl:grid-cols-[44%_1fr] xl:grid-rows-1">
+      <div className="relative mx-auto h-40 w-40 sm:h-44 sm:w-44 xl:mx-0 xl:h-full xl:w-full">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -270,20 +270,20 @@ const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) 
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-1">
-        <div className="space-y-2">
+      <div className="flex min-h-0 items-center overflow-y-auto pr-1">
+        <div className="w-full space-y-2">
           {sortedRows.map((row, index) => {
             const pct = totalBookings > 0 ? (row.count / totalBookings) * 100 : 0;
             return (
-              <div key={row.airline_code} className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5 text-sm">
+              <div key={row.airline_code} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm">
                 <AirlineLogo
                   code={row.airline_code}
                   className="h-5 w-5 rounded-sm border border-slate-200 bg-white object-contain p-0.5"
                 />
-                <span className="min-w-0 text-xs font-medium leading-tight text-slate-700 sm:text-sm">
+                <span className="min-w-0 text-xs font-medium leading-tight text-slate-700">
                   {formatAirlineLabel(row.airline_code)}
                 </span>
-                <span className="tabular-nums text-right text-slate-600">
+                <span className="text-[11px] tabular-nums text-right text-slate-600">
                   {row.count.toLocaleString("en-US")} ({pct.toFixed(1)}%)
                 </span>
               </div>
