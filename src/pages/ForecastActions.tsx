@@ -192,8 +192,8 @@ const WeeklyDemandChart: React.FC<{
         <ReferenceArea
           x1={data[0]?.week}
           x2={data[Math.max(splitIndex - 1, 0)]?.week}
-          fill="#CCFBF1"
-          fillOpacity={0.18}
+          fill="#e5e9eb"
+          fillOpacity={3}
           ifOverflow="extendDomain"
         />
         <ReferenceLine
