@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Label,
+  Area,
+  ComposedChart,
   CartesianGrid,
-  Legend,
   Line,
-  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -53,17 +56,13 @@ interface ForecastActionsProps {
 }
 
 interface StatCardProps {
+  id: string;
   label: string;
   value: string;
   helper: string;
-}
-
-interface PlaceholderPanelProps {
-  title: string;
-  description: string;
-  className?: string;
-  forecastVolumes?: number[];
-  forecastLabels?: string[];
+  implication: string;
+  isFlipped: boolean;
+  onToggle: (id: string) => void;
 }
 
 interface RiskWeekRow {
@@ -72,6 +71,27 @@ interface RiskWeekRow {
   riskFactor: "High" | "Medium" | "Low";
 }
 
+interface DemandSeriesPoint {
+  week: string;
+  historical: number | null;
+  forecast: number | null;
+  lowerCI: number | null;
+  upperCI: number | null;
+}
+
+const toWeekOrdinal = (dayOfMonth: number) => {
+  const weekIndex = Math.max(1, Math.min(5, Math.ceil(dayOfMonth / 7)));
+  if (weekIndex === 1) return "1st";
+  if (weekIndex === 2) return "2nd";
+  if (weekIndex === 3) return "3rd";
+  return `${weekIndex}th`;
+};
+
+const formatWeekLabel = (date: Date) => {
+  const month = date.toLocaleDateString("en-US", { month: "short" });
+  return `${month} W${Math.max(1, Math.min(5, Math.ceil(date.getDate() / 7)))}`;
+};
+
 const fallbackForecastData: ForecastPoint[] = [
   { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
   { month: "Feb", actual: 310, predicted: 320, lowerCI: 290, upperCI: 350 },
@@ -79,158 +99,180 @@ const fallbackForecastData: ForecastPoint[] = [
   { month: "Apr", actual: 360, predicted: 380, lowerCI: 345, upperCI: 420 },
 ];
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, helper }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-      {label}
-    </p>
-    <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
-    <p className="mt-2 text-sm text-slate-500">{helper}</p>
-  </div>
-);
-
-const PlaceholderChart: React.FC<{
-  title: string;
-  forecastVolumes?: number[];
-  forecastLabels?: string[];
-}> = ({ title, forecastVolumes, forecastLabels }) => {
-  if (title === "Weekly Booking Demand Graph") {
-    const volumeData =
-      forecastVolumes && forecastVolumes.length > 0
-        ? forecastVolumes
-        : [14, 15, 16, 15, 12];
-    const labels =
-      forecastLabels && forecastLabels.length === volumeData.length
-        ? forecastLabels
-        : volumeData.map((_, index) => `W${index + 1}`);
-
-    const lineData = volumeData.map((predicted, index) => ({
-      week: labels[index],
-      predicted,
-    }));
-
-    return (
-      <div className="mt-4 h-[15.5rem] rounded-xl border border-slate-200 bg-white p-3">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={lineData} margin={{ top: 10, right: 10, left: 4, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-            <XAxis
-              dataKey="week"
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 11, fill: "#6B7280" }}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 11, fill: "#6B7280" }}
-              allowDecimals={false}
-            />
-            <Tooltip
-              contentStyle={{
-                borderRadius: 10,
-                borderColor: "#E5E7EB",
-                fontSize: 12,
-              }}
-            />
-            <Legend
-              verticalAlign="top"
-              iconType="circle"
-              wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
-            />
-            <Line
-              type="monotone"
-              dataKey="actual"
-              name="Actual"
-              stroke="#111827"
-              strokeWidth={2}
-              dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
-            />
-            <Line
-              type="monotone"
-              dataKey="predicted"
-              name="Predicted"
-              stroke="#0D9488"
-              strokeWidth={2}
-              strokeDasharray="4 3"
-              dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+const StatCard: React.FC<StatCardProps> = ({
+  id,
+  label,
+  value,
+  helper,
+  implication,
+  isFlipped,
+  onToggle,
+}) => (
+  <button
+    type="button"
+    onClick={() => onToggle(id)}
+    className="group perspective h-56 w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 xl:h-52"
+    aria-pressed={isFlipped}
+    aria-label={`Flip ${label} KPI card`}
+  >
+    <div
+      className={`relative h-full w-full transform-style-preserve-3d rounded-2xl transition-transform duration-500 ${
+        isFlipped ? "rotate-y-180" : ""
+      }`}
+    >
+      <div className="backface-hidden absolute inset-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+        <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
+        <p className="mt-4 text-xs font-medium text-teal-700">Click card to view implication.</p>
       </div>
-    );
-  }
-
-  const volumeData =
-    forecastVolumes && forecastVolumes.length > 0
-      ? forecastVolumes
-      : [40, 48, 55, 60, 67, 74, 71, 66];
-  const maxVolume = Math.max(...volumeData, 1);
-  const normalizedBars = volumeData.map((value) =>
-    Math.max((value / maxVolume) * 100, 12)
-  );
-
-  const forecastLinePoints = normalizedBars.map((value, index) => {
-    const x = (index / Math.max(normalizedBars.length - 1, 1)) * 100;
-    const y = 100 - value;
-    return `${x},${y}`;
-  });
-
-  return (
-    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="relative h-40">
-        <div className="absolute inset-0 flex items-end gap-2">
-          {normalizedBars.map((height, idx) => (
-            <div
-              key={`actual-${idx}`}
-              className="relative flex-1 rounded-t bg-slate-300"
-              style={{ height: `${height}%` }}
-            >
-              <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-slate-600">
-                {volumeData[idx]}
-              </span>
-            </div>
-          ))}
+      <div className="backface-hidden rotate-y-180 absolute inset-0 flex min-h-0 flex-col rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">{label}</p>
+        <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          <p className="text-sm text-teal-900">{helper}</p>
+          <p className="text-sm leading-relaxed text-teal-900">{implication}</p>
         </div>
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <polyline
-            fill="none"
-            stroke="#0d9488"
-            strokeWidth="2"
-            points={forecastLinePoints.join(" ")}
-          />
-        </svg>
-      </div>
-      <div className="mt-3 flex items-center gap-4 text-[11px] text-slate-600">
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-teal-600" />
-          Forecast
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-slate-400" />
-          Actual
-        </span>
+        <p className="mt-3 text-xs font-medium text-teal-700">Click card to return.</p>
       </div>
     </div>
-  );
-};
+  </button>
+);
 
-const PlaceholderPanel: React.FC<PlaceholderPanelProps> = ({
-  title,
-  description,
-  className = "",
-  forecastVolumes,
-  forecastLabels,
-}) => (
-  <div className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}>
-    <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-    <p className="mt-1 text-sm text-slate-500">{description}</p>
-    <div className="h-64">
-      <PlaceholderChart
-        title={title}
-        forecastVolumes={forecastVolumes}
-        forecastLabels={forecastLabels}
-      />
+const WeeklyDemandChart: React.FC<{
+  data: DemandSeriesPoint[];
+  splitIndex: number;
+}> = ({ data, splitIndex }) => (
+  <div className="mt-4 h-[21rem] rounded-xl border border-slate-200 bg-white p-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 18, right: 12, left: 2, bottom: 28 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+        <XAxis
+          dataKey="week"
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 11, fill: "#6B7280" }}
+          interval={1}
+        />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 11, fill: "#6B7280" }}
+          allowDecimals={false}
+        />
+        <Tooltip
+          contentStyle={{
+            borderRadius: 10,
+            borderColor: "#E5E7EB",
+            fontSize: 12,
+          }}
+          formatter={(value: number | null, name: string) =>
+            value == null ? ["—", name] : [value.toLocaleString("en-US"), name]
+          }
+        />
+        <ReferenceLine
+          x={data[Math.max(splitIndex - 1, 0)]?.week}
+          stroke="#64748B"
+          strokeDasharray="6 4"
+          strokeWidth={1.5}
+        >
+          <Label
+            position="top"
+            value="Forecast starts"
+            fill="#334155"
+            fontSize={11}
+            offset={10}
+          />
+        </ReferenceLine>
+        <Area
+          type="monotone"
+          dataKey="upperCI"
+          stroke="none"
+          fill="#99F6E4"
+          fillOpacity={0.35}
+          isAnimationActive={false}
+        />
+        <Area
+          type="monotone"
+          dataKey="lowerCI"
+          stroke="none"
+          fill="#ffffff"
+          fillOpacity={1}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="historical"
+          name="Historical"
+          stroke="#0F172A"
+          strokeWidth={2}
+          dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
+          connectNulls={false}
+        />
+        <ReferenceLine
+          x={data[Math.max(Math.floor(splitIndex / 2), 0)]?.week}
+          strokeOpacity={0}
+        >
+          <Label
+            position="insideTop"
+            value="Historical"
+            fill="#475569"
+            fontSize={11}
+            offset={6}
+          />
+        </ReferenceLine>
+        <Line
+          type="monotone"
+          dataKey="forecast"
+          name="Forecasted"
+          stroke="#0D9488"
+          strokeWidth={2}
+          dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
+          connectNulls={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="upperCI"
+          name="Upper CI"
+          stroke="#14B8A6"
+          strokeDasharray="4 3"
+          strokeWidth={1.5}
+          dot={false}
+          connectNulls={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="lowerCI"
+          name="Lower CI"
+          stroke="#14B8A6"
+          strokeDasharray="4 3"
+          strokeWidth={1.5}
+          dot={false}
+          connectNulls={false}
+        />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-2 shrink-0 pt-1">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-600">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+            <span className="h-2 w-2 rounded-full bg-slate-900" />
+            Historical
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700">
+            <span className="h-2 w-2 rounded-full bg-teal-600" />
+            Forecasted (Next 2 Weeks)
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+            <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
+            Upper CI
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+            <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
+            Lower CI
+          </span>
+        </div>
+      </div>
     </div>
   </div>
 );
@@ -269,6 +311,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   const [loadError, setLoadError] = useState("");
   const [models, setModels] = useState<BackendModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -372,6 +415,10 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       }
     );
   }, [forecastData]);
+  const historicalHorizonWeeks = 16;
+  const forecastHorizonWeeks = 2;
+  const totalForecastedBookings = forecastOutlook?.forecasted_bookings_2w ?? 2847;
+  const averageWeeklyForecast = totalForecastedBookings / forecastHorizonWeeks;
 
   const riskWeeks: RiskWeekRow[] = forecastOutlook?.critical_weeks?.length
     ? forecastOutlook.critical_weeks.map((week, index) => ({
@@ -392,6 +439,75 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         { week: "Week 2", forecastedVolume: 1985, riskFactor: "High" },
         { week: "Week 3", forecastedVolume: 1735, riskFactor: "Low" },
       ];
+  const demandSeries = useMemo<DemandSeriesPoint[]>(() => {
+    const historicalSeed = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
+    const firstForecastDate =
+      forecastOutlook?.critical_weeks?.[0]?.week_start != null
+        ? new Date(forecastOutlook.critical_weeks[0].week_start)
+        : new Date();
+    const historicalRows = historicalSeed.map((value, index) => {
+      const historicalDate = new Date(firstForecastDate);
+      historicalDate.setDate(firstForecastDate.getDate() - (historicalSeed.length - index) * 7);
+      return {
+        week: formatWeekLabel(historicalDate),
+      historical: value,
+      forecast: null,
+      lowerCI: null,
+      upperCI: null,
+      };
+    });
+    const forecastRows = forecastData.map((item, index) => {
+      const forecastDate =
+        forecastOutlook?.critical_weeks?.[index]?.week_start != null
+          ? new Date(forecastOutlook.critical_weeks[index].week_start)
+          : (() => {
+              const derived = new Date(firstForecastDate);
+              derived.setDate(firstForecastDate.getDate() + index * 7);
+              return derived;
+            })();
+      return {
+      week: formatWeekLabel(forecastDate),
+      historical: null,
+      forecast: item.predicted,
+      lowerCI: item.lowerCI,
+      upperCI: item.upperCI,
+      };
+    });
+    return [...historicalRows, ...forecastRows];
+  }, [forecastData, forecastOutlook?.critical_weeks, historicalHorizonWeeks]);
+  const actionableInsights = useMemo(() => {
+    const insights: string[] = [];
+    const highRiskCount = riskWeeks.filter((week) => week.riskFactor === "High").length;
+    const mediumRiskCount = riskWeeks.filter((week) => week.riskFactor === "Medium").length;
+    if (highRiskCount > 0) {
+      insights.push(
+        `Allocate surge capacity for ${highRiskCount} high-risk week${highRiskCount > 1 ? "s" : ""} to prevent booking spillover.`
+      );
+    }
+    if (mediumRiskCount > 0) {
+      insights.push(
+        `Launch targeted promos and staffing adjustments for ${mediumRiskCount} medium-risk week${mediumRiskCount > 1 ? "s" : ""}.`
+      );
+    }
+    const forecastValues = forecastData.map((item) => item.predicted);
+    if (forecastValues.length >= 2 && forecastValues[forecastValues.length - 1] > forecastValues[0]) {
+      insights.push("Demand trend is rising across the horizon; increase seat allocation and support coverage.");
+    } else if (forecastValues.length >= 2) {
+      insights.push("Demand trend is flattening; prioritize margin optimization and route-level efficiency.");
+    }
+    if (insights.length === 0) {
+      insights.push("Current forecast is stable; maintain baseline operations and monitor weekly variance.");
+    }
+    return [
+      ...insights,
+      "Coordinate with partner agencies two weeks ahead to secure surge booking support.",
+      "Prepare standby marketing creatives for rapid campaign activation during demand spikes.",
+      "Set a weekly forecast variance review cadence with operations and commercial teams.",
+    ];
+  }, [forecastData, riskWeeks]);
+  const toggleKpiCard = (cardId: string) => {
+    setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
+  };
 
   return (
     <div className="relative min-h-full">
@@ -433,16 +549,37 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
             <SkeletonDashboard />
           ) : (
             <>
-              <section className="grid gap-4 md:grid-cols-2">
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <StatCard
-                  label="Forecasted Bookings"
-                  value={(
-                    forecastOutlook?.forecasted_bookings_2w ?? 2847
-                  ).toLocaleString("en-US")}
-                  helper="Next 2 weeks total projected bookings."
+                  id="forecast-horizon"
+                  label="Forecast Horizon"
+                  value={`${forecastHorizonWeeks} weeks`}
+                  helper="Default planning window for short-term demand."
+                  implication="Defines the operational planning window and staffing cadence for short-term execution."
+                  isFlipped={Boolean(flippedKpis["forecast-horizon"])}
+                  onToggle={toggleKpiCard}
                 />
                 <StatCard
-                  label="Highest Forecast Week"
+                  id="total-forecasted-bookings"
+                  label="Total Forecasted Bookings"
+                  value={totalForecastedBookings.toLocaleString("en-US")}
+                  helper="Projected bookings across the horizon."
+                  implication="Represents expected booking load to guide seat allocation and revenue planning."
+                  isFlipped={Boolean(flippedKpis["total-forecasted-bookings"])}
+                  onToggle={toggleKpiCard}
+                />
+                <StatCard
+                  id="average-weekly-forecast"
+                  label="Average Weekly Forecast"
+                  value={averageWeeklyForecast.toFixed(1)}
+                  helper="Mean projected bookings per forecast week."
+                  implication="Provides a baseline weekly demand level for staffing and campaign pacing decisions."
+                  isFlipped={Boolean(flippedKpis["average-weekly-forecast"])}
+                  onToggle={toggleKpiCard}
+                />
+                <StatCard
+                  id="peak-forecast-week"
+                  label="Peak Forecast Week"
                   value={
                     forecastOutlook?.highest_forecast_week_date
                       ? new Date(
@@ -457,19 +594,25 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     forecastOutlook?.highest_forecast_week_value ??
                     highestForecastWeek.predicted
                   ).toLocaleString("en-US")} projected bookings`}
+                  implication="Highlights the most capacity-sensitive week where pre-emptive actions have the highest impact."
+                  isFlipped={Boolean(flippedKpis["peak-forecast-week"])}
+                  onToggle={toggleKpiCard}
                 />
               </section>
 
               <section className="grid gap-4">
-                <PlaceholderPanel
-                  title="Weekly Booking Demand Graph"
-                  description="Placeholder for Forecast vs Actual weekly demand graph."
-                  forecastVolumes={riskWeeks.map((week) => week.forecastedVolume)}
-                  forecastLabels={riskWeeks.map((week) => week.week)}
-                />
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Weekly Booking Demand Graph
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Historical trend and forecast outlook with confidence band.
+                  </p>
+                  <WeeklyDemandChart data={demandSeries} splitIndex={historicalHorizonWeeks} />
+                </div>
               </section>
 
-              <section className="grid gap-4">
+              <section className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h3 className="text-sm font-semibold text-slate-900">
                     Critical Forecast Weeks
@@ -518,7 +661,22 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     </table>
                   </div>
                 </div>
-
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Actionable Insights
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Recommended actions based on demand trend and critical weeks.
+                  </p>
+                  <ul className="mt-4 space-y-3">
+                    {actionableInsights.map((insight) => (
+                      <li key={insight} className="flex items-start gap-2.5 text-sm text-slate-700">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
+                        <span>{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </section>
             </>
           )}

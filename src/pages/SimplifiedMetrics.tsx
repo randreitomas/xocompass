@@ -691,7 +691,6 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
               ))}
             </select>
             <span className="text-xs font-semibold text-slate-600">
-              Viewing: {isOverallView ? "Overall" : selectedYear}
             </span>
           </div>
         </div>
