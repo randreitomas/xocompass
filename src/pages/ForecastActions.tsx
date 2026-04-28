@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Download } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   CartesianGrid,
@@ -415,10 +414,6 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
             </p>
           </div>
 
-          <button className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
-            <Download className="h-4 w-4" />
-            <span>Export PDF Report</span>
-          </button>
         </div>
 
         {isLoading && (

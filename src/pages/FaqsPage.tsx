@@ -39,7 +39,7 @@ const groups: Record<string, FaqItem[]> = {
     {
       question: "Can I export technical diagnostics?",
       answer:
-        "Yes. From the Advanced Analytics dashboard use “Export Technical Report” to get a full report including model parameters (ARIMA order, seasonal order, exogenous features), Residuals vs Fitted and ACF/PACF plots, and statistical tests (ADF, Ljung-Box, Jarque-Bera).",
+        "Technical diagnostics are available in the Advanced Analytics dashboard, including model parameters (ARIMA order, seasonal order, exogenous features), residual behavior, and statistical tests (ADF, Ljung-Box, Jarque-Bera).",
     },
   ],
 };

@@ -19,12 +19,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ pageTitle }) => {
         />
 
         <div
-          className={`flex flex-1 flex-col transition-all duration-200 ${
+          className={`flex flex-1 min-w-0 flex-col transition-all duration-200 ${
             isSidebarCollapsed ? "ml-20" : "ml-64"
           }`}
         >
           <Header pageTitle={pageTitle} />
-          <main className="flex-1 overflow-y-auto bg-gray-50 p-8">
+          <main className="flex-1 min-w-0 overflow-auto bg-gray-50 p-8">
             <Outlet />
           </main>
         </div>

@@ -28,10 +28,20 @@ export interface LeadTimeBucket {
   count: number;
 }
 
+export interface RouteVolume {
+  route: string;
+  bookings: number;
+}
+
 export interface BusinessAnalyticsTabProps {
   bookingsByYear: BookingsByYearPoint[];
   topAirlines?: AirlineCount[] | null;
   leadTimeDistribution?: LeadTimeBucket[] | null;
+  topRoutes?: RouteVolume[] | null;
+  showBookingsOverTime?: boolean;
+  showBreakdownCharts?: boolean;
+  bookingsOverTimeDescription?: string;
+  bookingsPeriodLabel?: string;
 }
 
 /** Segment colors (teal → blues → warm → grey), aligned with typical dashboard palette */
@@ -87,7 +97,10 @@ const ChartShell: React.FC<{
   </div>
 );
 
-const BookingsOverTimeChart: React.FC<{ data: BookingsByYearPoint[] }> = ({ data }) => {
+const BookingsOverTimeChart: React.FC<{
+  data: BookingsByYearPoint[];
+  periodLabel?: string;
+}> = ({ data, periodLabel = "Year" }) => {
   const yearlySeries = useMemo(
     () =>
       data
@@ -124,7 +137,7 @@ const BookingsOverTimeChart: React.FC<{ data: BookingsByYearPoint[] }> = ({ data
               fontSize: 12,
             }}
             formatter={(value: number) => [value.toLocaleString("en-US"), "Total Bookings"]}
-            labelFormatter={(label) => `Year: ${label}`}
+            labelFormatter={(label) => `${periodLabel}: ${label}`}
           />
           <Bar dataKey="bookings" name="Total Bookings" fill="#0D9488" radius={[6, 6, 0, 0]} />
         </BarChart>
@@ -290,55 +303,128 @@ const LeadTimeDistributionChart: React.FC<{ buckets: LeadTimeBucket[] }> = ({ bu
   );
 };
 
+const TopRoutesChart: React.FC<{ routes: RouteVolume[] }> = ({ routes }) => {
+  const sortedRoutes = useMemo(
+    () => [...routes].sort((a, b) => b.bookings - a.bookings).slice(0, 8),
+    [routes]
+  );
+
+  return (
+    <div className="mt-4 h-[17rem] rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={sortedRoutes}
+          layout="vertical"
+          margin={{ top: 8, right: 18, left: 16, bottom: 8 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={true} vertical={false} />
+          <XAxis
+            type="number"
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11, fill: "#6B7280" }}
+            allowDecimals={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="route"
+            width={68}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11, fill: "#374151" }}
+          />
+          <Tooltip
+            cursor={{ fill: "rgba(13, 148, 136, 0.08)" }}
+            contentStyle={{
+              borderRadius: 10,
+              borderColor: "#E5E7EB",
+              fontSize: 12,
+            }}
+            formatter={(value: number) => [value.toLocaleString("en-US"), "Bookings"]}
+            labelFormatter={(label) => `Route: ${label}`}
+          />
+          <Bar dataKey="bookings" name="Bookings" fill="#0D9488" radius={[0, 6, 6, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
 export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
   bookingsByYear,
   topAirlines,
   leadTimeDistribution,
+  topRoutes,
+  showBookingsOverTime = true,
+  showBreakdownCharts = true,
+  bookingsOverTimeDescription = "Total bookings by year from the linked dataset.",
+  bookingsPeriodLabel = "Year",
 }) => {
   const hasAirlines = Boolean(topAirlines && topAirlines.length > 0);
   const hasLeadBuckets = Boolean(leadTimeDistribution && leadTimeDistribution.length > 0);
+  const hasTopRoutes = Boolean(topRoutes && topRoutes.length > 0);
 
   return (
     <>
-      <section className="grid gap-4">
-        <ChartShell
-          title="Bookings Over Time"
-          description="Total bookings by year from the linked dataset."
-          heightClassName="h-72"
-        >
-          <BookingsOverTimeChart data={bookingsByYear} />
-        </ChartShell>
-      </section>
+      {showBookingsOverTime && (
+        <section className="grid gap-4">
+          <ChartShell
+            title="Bookings Over Time"
+            description={bookingsOverTimeDescription}
+            heightClassName="h-72"
+          >
+            <BookingsOverTimeChart data={bookingsByYear} periodLabel={bookingsPeriodLabel} />
+          </ChartShell>
+        </section>
+      )}
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <ChartShell
-          title="Top Airlines"
-          description="Share of total bookings"
-          heightClassName="h-80 min-h-[18rem] sm:min-h-[20rem]"
-        >
-          {hasAirlines ? (
-            <TopAirlinesChart airlines={topAirlines!} />
-          ) : (
-            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-              No airline breakdown available for this model snapshot.
-            </div>
-          )}
-        </ChartShell>
+      {showBreakdownCharts && (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <ChartShell
+              title="Top Airlines"
+              description="Share of total bookings"
+              heightClassName="h-80 min-h-[18rem] sm:min-h-[20rem]"
+            >
+              {hasAirlines ? (
+                <TopAirlinesChart airlines={topAirlines!} />
+              ) : (
+                <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                  No airline breakdown available for this model snapshot.
+                </div>
+              )}
+            </ChartShell>
 
-        <ChartShell
-          title="Lead Time Distribution"
-          description="Booking volume by lead-time bucket (from backend lead_time_distribution)."
-          heightClassName="h-72"
-        >
-          {hasLeadBuckets ? (
-            <LeadTimeDistributionChart buckets={leadTimeDistribution!} />
-          ) : (
-            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-              No lead-time histogram available for this model snapshot.
-            </div>
-          )}
-        </ChartShell>
-      </section>
+            <ChartShell
+              title="Top Routes by Booking Volume"
+              description="Total bookings by route"
+              heightClassName="h-80 min-h-[18rem]"
+            >
+              {hasTopRoutes ? (
+                <TopRoutesChart routes={topRoutes!} />
+              ) : (
+                <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                  No route breakdown available for this model snapshot.
+                </div>
+              )}
+            </ChartShell>
+          </div>
+
+          <ChartShell
+            title="Lead Time Distribution"
+            description="Booking volume by lead-time bucket (from backend lead_time_distribution)."
+            heightClassName="h-[40.5rem]"
+          >
+            {hasLeadBuckets ? (
+              <LeadTimeDistributionChart buckets={leadTimeDistribution!} />
+            ) : (
+              <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                No lead-time histogram available for this model snapshot.
+              </div>
+            )}
+          </ChartShell>
+        </section>
+      )}
     </>
   );
 };

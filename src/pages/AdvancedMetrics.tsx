@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Download } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { apiRoutes, fetchJson } from "../lib/apiRoutes";
 
@@ -442,7 +441,7 @@ export const AdvancedMetrics: React.FC = () => {
   };
 
   return (
-    <div className="min-h-full w-full min-w-0 max-w-full space-y-8 bg-[#F4FFF8] p-6 -m-8">
+    <div className="min-h-full w-full space-y-8 bg-[#F4FFF8]">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-slate-900">
@@ -457,10 +456,6 @@ export const AdvancedMetrics: React.FC = () => {
             </span>
           </p>
         </div>
-        <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
-          <Download className="h-4 w-4" />
-          <span>Export Technical Report</span>
-        </button>
       </div>
 
       {isLoading && (
