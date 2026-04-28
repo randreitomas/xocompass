@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import {
+  CalendarRange,
+  CheckCircle2,
+  Clock3,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Label,
@@ -7,6 +13,7 @@ import {
   ComposedChart,
   CartesianGrid,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -61,6 +68,7 @@ interface StatCardProps {
   value: string;
   helper: string;
   implication: string;
+  icon: React.ReactNode;
   isFlipped: boolean;
   onToggle: (id: string) => void;
 }
@@ -77,6 +85,7 @@ interface DemandSeriesPoint {
   forecast: number | null;
   lowerCI: number | null;
   upperCI: number | null;
+  transition: number | null;
 }
 
 const toWeekOrdinal = (dayOfMonth: number) => {
@@ -105,6 +114,7 @@ const StatCard: React.FC<StatCardProps> = ({
   value,
   helper,
   implication,
+  icon,
   isFlipped,
   onToggle,
 }) => (
@@ -124,6 +134,9 @@ const StatCard: React.FC<StatCardProps> = ({
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
         <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
         <p className="mt-4 text-xs font-medium text-teal-700">Click card to view implication.</p>
+        <span className="absolute bottom-4 right-4 inline-flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+          {icon}
+        </span>
       </div>
       <div className="backface-hidden rotate-y-180 absolute inset-0 flex min-h-0 flex-col rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">{label}</p>
@@ -140,19 +153,22 @@ const StatCard: React.FC<StatCardProps> = ({
 const WeeklyDemandChart: React.FC<{
   data: DemandSeriesPoint[];
   splitIndex: number;
-}> = ({ data, splitIndex }) => (
-  <div className="mt-4 h-[21rem] rounded-xl border border-slate-200 bg-white p-3">
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 18, right: 12, left: 2, bottom: 28 }}>
+}> = ({ data, splitIndex }) => {
+  const splitRatio = Math.max(0, Math.min(1, (splitIndex - 0.5) / Math.max(data.length - 1, 1)));
+
+  return (
+    <div className="mt-4 h-[21rem] rounded-xl border border-slate-200 bg-white p-3">
+      <div className="relative flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 18, right: 12, left: 2, bottom: 28 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
         <XAxis
           dataKey="week"
           tickLine={false}
           axisLine={false}
           tick={{ fontSize: 11, fill: "#6B7280" }}
-          interval={1}
+          interval={0}
         />
         <YAxis
           tickLine={false}
@@ -166,15 +182,25 @@ const WeeklyDemandChart: React.FC<{
             borderColor: "#E5E7EB",
             fontSize: 12,
           }}
-          formatter={(value: number | null, name: string) =>
-            value == null ? ["—", name] : [value.toLocaleString("en-US"), name]
-          }
+          formatter={(value, name) => {
+            const numericValue = typeof value === "number" ? value : Number(value);
+            return Number.isFinite(numericValue)
+              ? [numericValue.toLocaleString("en-US"), name]
+              : ["—", name];
+          }}
+        />
+        <ReferenceArea
+          x1={data[0]?.week}
+          x2={data[Math.max(splitIndex - 1, 0)]?.week}
+          fill="#CCFBF1"
+          fillOpacity={0.18}
+          ifOverflow="extendDomain"
         />
         <ReferenceLine
           x={data[Math.max(splitIndex - 1, 0)]?.week}
-          stroke="#64748B"
+          stroke="#475569"
           strokeDasharray="6 4"
-          strokeWidth={1.5}
+          strokeWidth={2}
         >
           <Label
             position="top"
@@ -203,8 +229,8 @@ const WeeklyDemandChart: React.FC<{
         <Line
           type="monotone"
           dataKey="historical"
-          name="Historical"
-          stroke="#0F172A"
+          name="Forecasted (History)"
+          stroke="#0D9488"
           strokeWidth={2}
           dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
           connectNulls={false}
@@ -215,7 +241,7 @@ const WeeklyDemandChart: React.FC<{
         >
           <Label
             position="insideTop"
-            value="Historical"
+            value="Forecasted History"
             fill="#475569"
             fontSize={11}
             offset={6}
@@ -242,6 +268,17 @@ const WeeklyDemandChart: React.FC<{
         />
         <Line
           type="monotone"
+          dataKey="transition"
+          name="Transition"
+          stroke="#0D9488"
+          strokeWidth={2}
+          dot={false}
+          connectNulls={false}
+          legendType="none"
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
           dataKey="lowerCI"
           name="Lower CI"
           stroke="#14B8A6"
@@ -250,32 +287,33 @@ const WeeklyDemandChart: React.FC<{
           dot={false}
           connectNulls={false}
         />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="mt-2 shrink-0 pt-1">
-        <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-600">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
-            <span className="h-2 w-2 rounded-full bg-slate-900" />
-            Historical
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700">
-            <span className="h-2 w-2 rounded-full bg-teal-600" />
-            Forecasted (Next 2 Weeks)
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-            <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-            Upper CI
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-            <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-            Lower CI
-          </span>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 shrink-0 pt-1">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-600">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700">
+              <span className="h-2 w-2 rounded-full bg-teal-600" />
+            Forecasted (History)
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700">
+              <span className="h-2 w-2 rounded-full bg-teal-600" />
+              Forecasted (Next 2 Weeks)
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
+              Upper CI
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
+              Lower CI
+            </span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const ForecastActions: React.FC<ForecastActionsProps> = ({
   isBackgroundPreview = false,
@@ -415,7 +453,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       }
     );
   }, [forecastData]);
-  const historicalHorizonWeeks = 16;
+  const historicalHorizonWeeks = 4;
   const forecastHorizonWeeks = 2;
   const totalForecastedBookings = forecastOutlook?.forecasted_bookings_2w ?? 2847;
   const averageWeeklyForecast = totalForecastedBookings / forecastHorizonWeeks;
@@ -440,7 +478,12 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         { week: "Week 3", forecastedVolume: 1735, riskFactor: "Low" },
       ];
   const demandSeries = useMemo<DemandSeriesPoint[]>(() => {
-    const historicalSeed = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
+    // Keep placeholder consistency with AdvancedMetrics forecasted line.
+    const advancedActualSeed = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
+    const advancedForecastedSeed = advancedActualSeed.map((actual, index) =>
+      Math.max(Number((actual * 0.92 + Math.sin(index * 0.6) * 0.9).toFixed(1)), 0)
+    );
+    const historicalSeed = advancedForecastedSeed.slice(-historicalHorizonWeeks);
     const firstForecastDate =
       forecastOutlook?.critical_weeks?.[0]?.week_start != null
         ? new Date(forecastOutlook.critical_weeks[0].week_start)
@@ -448,12 +491,14 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     const historicalRows = historicalSeed.map((value, index) => {
       const historicalDate = new Date(firstForecastDate);
       historicalDate.setDate(firstForecastDate.getDate() - (historicalSeed.length - index) * 7);
+      const ciWidth = Number((Math.max(1.2, value * 0.1)).toFixed(1));
       return {
         week: formatWeekLabel(historicalDate),
       historical: value,
       forecast: null,
-      lowerCI: null,
-      upperCI: null,
+      lowerCI: Math.max(Number((value - ciWidth).toFixed(1)), 0),
+      upperCI: Number((value + ciWidth).toFixed(1)),
+      transition: index === historicalSeed.length - 1 ? value : null,
       };
     });
     const forecastRows = forecastData.map((item, index) => {
@@ -465,12 +510,14 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
               derived.setDate(firstForecastDate.getDate() + index * 7);
               return derived;
             })();
+      const ciWidth = Number((Math.max(1.2, item.predicted * 0.1)).toFixed(1));
       return {
       week: formatWeekLabel(forecastDate),
       historical: null,
       forecast: item.predicted,
-      lowerCI: item.lowerCI,
-      upperCI: item.upperCI,
+      lowerCI: Math.max(Number((item.predicted - ciWidth).toFixed(1)), 0),
+      upperCI: Number((item.predicted + ciWidth).toFixed(1)),
+      transition: index === 0 ? item.predicted : null,
       };
     });
     return [...historicalRows, ...forecastRows];
@@ -556,6 +603,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   value={`${forecastHorizonWeeks} weeks`}
                   helper="Default planning window for short-term demand."
                   implication="Defines the operational planning window and staffing cadence for short-term execution."
+                  icon={<CalendarRange className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["forecast-horizon"])}
                   onToggle={toggleKpiCard}
                 />
@@ -565,6 +613,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   value={totalForecastedBookings.toLocaleString("en-US")}
                   helper="Projected bookings across the horizon."
                   implication="Represents expected booking load to guide seat allocation and revenue planning."
+                  icon={<TrendingUp className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["total-forecasted-bookings"])}
                   onToggle={toggleKpiCard}
                 />
@@ -574,6 +623,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   value={averageWeeklyForecast.toFixed(1)}
                   helper="Mean projected bookings per forecast week."
                   implication="Provides a baseline weekly demand level for staffing and campaign pacing decisions."
+                  icon={<Clock3 className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["average-weekly-forecast"])}
                   onToggle={toggleKpiCard}
                 />
@@ -595,6 +645,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     highestForecastWeek.predicted
                   ).toLocaleString("en-US")} projected bookings`}
                   implication="Highlights the most capacity-sensitive week where pre-emptive actions have the highest impact."
+                  icon={<Zap className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["peak-forecast-week"])}
                   onToggle={toggleKpiCard}
                 />

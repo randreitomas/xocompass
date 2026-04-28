@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Activity, Percent, Sigma, Sparkles } from "lucide-react";
 import {
   Area,
   Bar,
@@ -21,6 +22,7 @@ interface MetricCardProps {
   value: string;
   helper: string;
   implication: string;
+  icon: React.ReactNode;
   isFlipped: boolean;
   onToggle: (id: string) => void;
 }
@@ -74,6 +76,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   value,
   helper,
   implication,
+  icon,
   isFlipped,
   onToggle,
 }) => (
@@ -93,6 +96,9 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
         <p className="mt-3 text-3xl font-bold leading-none text-slate-900">{value}</p>
         <p className="mt-4 text-xs font-medium text-teal-700">Click card to view implication.</p>
+        <span className="absolute bottom-4 right-4 inline-flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+          {icon}
+        </span>
       </div>
       <div className="backface-hidden rotate-y-180 absolute inset-0 flex min-h-0 flex-col rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">{label}</p>
@@ -634,6 +640,7 @@ export const AdvancedMetrics: React.FC = () => {
           value={`${(advancedMetrics?.statistics.wmape ?? 4.62).toFixed(2)}%`}
           helper="Weighted mean absolute percentage error."
           implication="Lower WMAPE indicates proportionally smaller demand forecast misses across varying booking volumes."
+          icon={<Percent className="h-4 w-4" />}
           isFlipped={Boolean(flippedKpis["wmape"])}
           onToggle={toggleKpiCard}
         />
@@ -643,6 +650,7 @@ export const AdvancedMetrics: React.FC = () => {
           value={(advancedMetrics?.statistics.mae ?? 112.3).toFixed(2)}
           helper="Mean absolute prediction error."
           implication="MAE shows average absolute miss in booking units; lower values improve operational planning precision."
+          icon={<Activity className="h-4 w-4" />}
           isFlipped={Boolean(flippedKpis["mae"])}
           onToggle={toggleKpiCard}
         />
@@ -652,6 +660,7 @@ export const AdvancedMetrics: React.FC = () => {
           value={(advancedMetrics?.statistics.rmse ?? 158.47).toFixed(2)}
           helper="Root mean squared error."
           implication="RMSE emphasizes larger misses; high values can indicate risk during peak-demand weeks."
+          icon={<Sigma className="h-4 w-4" />}
           isFlipped={Boolean(flippedKpis["rmse"])}
           onToggle={toggleKpiCard}
         />
@@ -661,6 +670,7 @@ export const AdvancedMetrics: React.FC = () => {
           value={aicScore.toFixed(2)}
           helper="Model information criterion (lower is better)."
           implication="AIC balances fit and complexity; lower scores suggest a more efficient model setup."
+          icon={<Sparkles className="h-4 w-4" />}
           isFlipped={Boolean(flippedKpis["aic"])}
           onToggle={toggleKpiCard}
         />
