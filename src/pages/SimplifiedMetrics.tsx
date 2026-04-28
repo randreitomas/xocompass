@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
+import {
+  CalendarRange,
+  Clock3,
+  Database,
+  PhilippinePeso,
+  TrendingUp,
+  UsersRound,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiRoutes, fetchJson } from "../lib/apiRoutes";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
 import { SavesModal } from "../components/modals/SavesModal";
 import {
   BusinessAnalyticsTab,
+  DataQualityItem,
+  NetAmountPoint,
   RouteVolume,
 } from "../components/dashboard/tabs/BusinessAnalyticsTab";
 
@@ -100,9 +110,14 @@ interface SimplifiedMetricsProps {
 }
 
 interface StatCardProps {
+  id: string;
   label: string;
   value: string;
   helper: string;
+  implication: string;
+  icon: React.ReactNode;
+  isFlipped: boolean;
+  onToggle: (id: string) => void;
 }
 
 interface YearPlaceholderKpis {
@@ -110,6 +125,7 @@ interface YearPlaceholderKpis {
   totalRevenue: number;
   avgLeadTimeDays: number;
   avgWeeklyBookings: number;
+  weeklyObservations: number;
 }
 
 const fallbackLeadTimeBuckets: LeadTimeBucket[] = [
@@ -130,14 +146,55 @@ const formatCompactRevenue = (value: number) => {
   return `₱${compact.toUpperCase()}`;
 };
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, helper }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-      {label}
-    </p>
-    <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
-    <p className="mt-2 text-sm text-slate-500">{helper}</p>
-  </div>
+const StatCard: React.FC<StatCardProps> = ({
+  id,
+  label,
+  value,
+  helper,
+  implication,
+  icon,
+  isFlipped,
+  onToggle,
+}) => (
+  <button
+    type="button"
+    onClick={() => onToggle(id)}
+    className="group perspective h-56 w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 xl:h-52"
+    aria-pressed={isFlipped}
+    aria-label={`Flip ${label} KPI card`}
+  >
+    <div
+      className={`relative h-full w-full transform-style-preserve-3d rounded-2xl transition-transform duration-500 ${
+        isFlipped ? "rotate-y-180" : ""
+      }`}
+    >
+      <div className="backface-hidden absolute inset-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          {label}
+        </p>
+        <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
+        <p className="mt-4 text-xs font-medium text-teal-700">
+          Click card to view implication.
+        </p>
+        <span className="absolute bottom-4 right-4 inline-flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+          {icon}
+        </span>
+      </div>
+
+      <div className="backface-hidden rotate-y-180 absolute inset-0 flex min-h-0 flex-col rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
+          {label}
+        </p>
+        <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          <p className="text-sm text-teal-900">{helper}</p>
+          <p className="text-sm leading-relaxed text-teal-900">{implication}</p>
+        </div>
+        <p className="mt-3 text-xs font-medium text-teal-700">
+          Click card to return.
+        </p>
+      </div>
+    </div>
+  </button>
 );
 
 export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
@@ -175,6 +232,7 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
   const [models, setModels] = useState<BackendModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [selectedYearView, setSelectedYearView] = useState<string>("overall");
+  const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -275,6 +333,7 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
           totalRevenue: point.bookings * 1160,
           avgLeadTimeDays: Number(baseLeadTime.toFixed(1)),
           avgWeeklyBookings: Number(weeklyBookings.toFixed(2)),
+          weeklyObservations: 52,
         };
         return [year, placeholderValues] as const;
       })
@@ -339,6 +398,9 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
   const avgWeeklyBookingsDisplay = !isOverallView && selectedYearPlaceholders
     ? selectedYearPlaceholders.avgWeeklyBookings.toFixed(2)
     : `${(businessAnalytics?.avg_weekly_bookings ?? 11.67).toFixed(2)}`;
+  const weeklyObservationsDisplay = !isOverallView && selectedYearPlaceholders
+    ? selectedYearPlaceholders.weeklyObservations.toLocaleString("en-US")
+    : (businessAnalytics?.total_weekly_records ?? 642).toLocaleString("en-US");
   const topAirlinesDisplay = useMemo(() => {
     const sourceTopAirlines =
       businessAnalytics?.top_airlines && businessAnalytics.top_airlines.length > 0
@@ -399,11 +461,41 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
       };
     });
   }, [isOverallView, selectedYear]);
+  const netAmountsDisplay = useMemo<NetAmountPoint[]>(
+    () =>
+      bookingsOverTimeDisplayData.map((point) => ({
+        period: String(point.year),
+        amount: Number((point.bookings * 0.00016).toFixed(2)),
+      })),
+    [bookingsOverTimeDisplayData]
+  );
+  const dataQualityDisplay = useMemo<DataQualityItem[]>(() => {
+    const base = [
+      { label: "Duplicate Rows", count: 1982 },
+      { label: "Missing Route", count: 705 },
+      { label: "Missing Airline", count: 292 },
+      { label: "Missing Travel Date", count: 359 },
+      { label: "Invalid Travel Date", count: 523 },
+      { label: "Invalid Booking Date", count: 0 },
+      { label: "Negative Lead Records", count: 1752 },
+    ];
+
+    if (isOverallView) return base;
+
+    const yearOffset = selectedYear ? (selectedYear % 4) - 1.5 : 0;
+    return base.map((item, index) => ({
+      label: item.label,
+      count: Math.max(Math.round(item.count * (1 + yearOffset * 0.08 + index * 0.01)), 0),
+    }));
+  }, [isOverallView, selectedYear]);
+  const toggleKpiCard = (cardId: string) => {
+    setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
+  };
 
   return (
     <div className="relative min-h-full">
       <div
-        className={`min-h-full bg-[#F4FFF8] px-6 py-6 -m-8 ${
+        className={`min-h-full bg-[#F9FAFB] px-6 py-6 -m-8 ${
           shouldShowColdStart ? "pointer-events-none select-none grayscale saturate-0" : ""
         }`}
       >
@@ -439,25 +531,19 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
       ) : (
       <>
 
-      <BusinessAnalyticsTab
-        bookingsByYear={bookingsOverTimeDisplayData}
-        topAirlines={topAirlinesDisplay}
-        leadTimeDistribution={leadTimeDistributionDisplay}
-        topRoutes={topRoutesDisplay}
-        showBreakdownCharts={false}
-        bookingsPeriodLabel={isOverallView ? "Year" : "Month"}
-        bookingsOverTimeDescription={
-          isOverallView
-            ? "Total bookings by year from the linked dataset."
-            : `Monthly booking distribution placeholder for ${selectedYear} (year-specific backend filtering in progress).`
-        }
-      />
-
-      <section className="space-y-4">
-      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
+          id="total-records"
           label="Total Records"
           value={totalRecordsDisplay}
+          implication={
+            isOverallView
+              ? "More records usually improve trend stability and reduce one-off noise."
+              : "Year record count shows how representative this period is."
+          }
+          icon={<Database className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["total-records"])}
+          onToggle={toggleKpiCard}
           helper={
             isOverallView
               ? "Records available in model-ready booking dataset."
@@ -465,8 +551,17 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
           }
         />
         <StatCard
+          id="total-revenue"
           label="Total Revenue"
           value={totalRevenueDisplay}
+          implication={
+            isOverallView
+              ? "Revenue trend helps gauge demand monetization over time."
+              : "Year revenue shows whether this period is high or low earning."
+          }
+          icon={<PhilippinePeso className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["total-revenue"])}
+          onToggle={toggleKpiCard}
           helper={
             isOverallView
               ? `Growth signal: ${growthLabel} YoY`
@@ -474,8 +569,17 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
           }
         />
         <StatCard
+          id="date-coverage"
           label="Date Coverage"
           value={dateCoverageDisplay}
+          implication={
+            isOverallView
+              ? "Wider coverage captures seasonality and improves comparability."
+              : "Single-year scope focuses one cycle and omits long-term effects."
+          }
+          icon={<CalendarRange className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["date-coverage"])}
+          onToggle={toggleKpiCard}
           helper={
             isOverallView
               ? "Coverage window of historical booking records."
@@ -483,13 +587,49 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
           }
         />
         <StatCard
+          id="average-lead-time"
           label="Average Lead Time"
           value={averageLeadTimeDisplay}
+          implication={
+            isOverallView
+              ? "Lead-time shifts can indicate changing planning behavior."
+              : "Year lead-time changes highlight booking urgency for this period."
+          }
+          icon={<Clock3 className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["average-lead-time"])}
+          onToggle={toggleKpiCard}
           helper={averageLeadTimeHelper}
         />
         <StatCard
+          id="weekly-observations"
+          label="Weekly Observations"
+          value={weeklyObservationsDisplay}
+          implication={
+            isOverallView
+              ? "Consistent weekly coverage strengthens diagnostics."
+              : "Year weekly count indicates completeness for analysis."
+          }
+          icon={<TrendingUp className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["weekly-observations"])}
+          onToggle={toggleKpiCard}
+          helper={
+            isOverallView
+              ? "Number of weekly records in this dataset."
+              : "Placeholder weekly record count for selected year."
+          }
+        />
+        <StatCard
+          id="average-weekly-bookings"
           label="Average Weekly Bookings"
           value={avgWeeklyBookingsDisplay}
+          implication={
+            isOverallView
+              ? "Baseline weekly demand helps benchmark trend strength."
+              : "Year weekly average shows demand level vs baseline."
+          }
+          icon={<UsersRound className="h-4 w-4" />}
+          isFlipped={Boolean(flippedKpis["average-weekly-bookings"])}
+          onToggle={toggleKpiCard}
           helper={
             isOverallView
               ? "Mean bookings per week over the model-ready dataset window."
@@ -497,14 +637,20 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
           }
         />
       </section>
-      </section>
 
       <BusinessAnalyticsTab
-        bookingsByYear={bookingsByYearData}
+        bookingsByYear={bookingsOverTimeDisplayData}
+        netAmounts={netAmountsDisplay}
         topAirlines={topAirlinesDisplay}
         leadTimeDistribution={leadTimeDistributionDisplay}
         topRoutes={topRoutesDisplay}
-        showBookingsOverTime={false}
+        dataQualityItems={dataQualityDisplay}
+        bookingsPeriodLabel={isOverallView ? "Year" : "Month"}
+        bookingsOverTimeDescription={
+          isOverallView
+            ? "Total bookings by year from the linked dataset."
+            : `Monthly booking distribution placeholder for ${selectedYear} (year-specific backend filtering in progress).`
+        }
       />
       </>
       )}
@@ -545,6 +691,7 @@ export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
               ))}
             </select>
             <span className="text-xs font-semibold text-slate-600">
+              Viewing: {isOverallView ? "Overall" : selectedYear}
             </span>
           </div>
         </div>

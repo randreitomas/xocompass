@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -33,55 +33,108 @@ export interface RouteVolume {
   bookings: number;
 }
 
+export interface NetAmountPoint {
+  period: string;
+  amount: number;
+}
+
+export interface DataQualityItem {
+  label: string;
+  count: number;
+}
+
 export interface BusinessAnalyticsTabProps {
   bookingsByYear: BookingsByYearPoint[];
+  netAmounts: NetAmountPoint[];
   topAirlines?: AirlineCount[] | null;
   leadTimeDistribution?: LeadTimeBucket[] | null;
   topRoutes?: RouteVolume[] | null;
-  showBookingsOverTime?: boolean;
-  showBreakdownCharts?: boolean;
+  dataQualityItems?: DataQualityItem[] | null;
   bookingsOverTimeDescription?: string;
   bookingsPeriodLabel?: string;
 }
 
-/** Segment colors (teal → blues → warm → grey), aligned with typical dashboard palette */
-const PIE_COLORS = [
-  "#0D9488",
-  "#38BDF8",
-  "#1D4ED8",
-  "#D4A574",
-  "#94A3B8",
-  "#8B5CF6",
-  "#22C55E",
-  "#EC4899",
-];
+const AIRLINE_LOGO_DOMAIN_BY_CODE: Record<string, string> = {
+  "5J": "cebupacificair.com",
+  DG: "cebupacificair.com",
+  PR: "philippineairlines.com",
+  Z2: "zipair.net",
+  SQ: "singaporeair.com",
+  CX: "cathaypacific.com",
+  BR: "evaair.com",
+  NH: "ana.co.jp",
+  JL: "jal.co.jp",
+  KE: "koreanair.com",
+  OZ: "flyasiana.com",
+  TR: "flyscoot.com",
+  AK: "airasia.com",
+};
 
 const AIRLINE_DISPLAY_NAMES: Record<string, string> = {
   "5J": "Cebu Pacific",
-  Z2: "ZIPAIR Tokyo",
+  DG: "Cebgo",
   PR: "Philippine Airlines",
+  Z2: "ZIPAIR Tokyo",
   SQ: "Singapore Airlines",
   CX: "Cathay Pacific",
   BR: "EVA Air",
-  NH: "ANA",
+  NH: "All Nippon Airways",
   JL: "Japan Airlines",
   KE: "Korean Air",
   OZ: "Asiana Airlines",
   TR: "Scoot",
   AK: "AirAsia",
-  DG: "Cebgo",
-  OTHER: "Other Airlines",
-  OTHER_AIRLINES: "Other Airlines",
 };
 
-const displayAirlineName = (code: string) => {
-  const upper = code.trim().toUpperCase();
-  return AIRLINE_DISPLAY_NAMES[upper] ?? AIRLINE_DISPLAY_NAMES[code] ?? null;
+const formatAirlineLabel = (code: string) => {
+  const normalized = code.toUpperCase();
+  const name = AIRLINE_DISPLAY_NAMES[normalized];
+  return name ? `${normalized} (${name})` : normalized;
 };
 
-const legendLabel = (code: string) => {
-  const name = displayAirlineName(code);
-  return name ? `${code} (${name})` : code;
+const getAirlineLogoUrl = (airlineCode: string) => {
+  const domain = AIRLINE_LOGO_DOMAIN_BY_CODE[airlineCode.toUpperCase()];
+  return domain ? `https://logo.clearbit.com/${domain}` : null;
+};
+
+const getAirlineFaviconUrl = (airlineCode: string) => {
+  const domain = AIRLINE_LOGO_DOMAIN_BY_CODE[airlineCode.toUpperCase()];
+  return domain ? `https://www.google.com/s2/favicons?sz=64&domain=${domain}` : null;
+};
+
+const AirlineLogo: React.FC<{ code: string; className?: string }> = ({ code, className }) => {
+  const primaryLogo = getAirlineLogoUrl(code);
+  const fallbackLogo = getAirlineFaviconUrl(code);
+  const [useFallback, setUseFallback] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
+
+  if (failed || (!primaryLogo && !fallbackLogo)) {
+    return (
+      <span
+        className={`inline-flex items-center justify-center rounded-sm bg-slate-100 text-[9px] font-semibold text-slate-600 ${
+          className ?? "h-5 w-5"
+        }`}
+      >
+        {code.slice(0, 2)}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={useFallback && fallbackLogo ? fallbackLogo : primaryLogo ?? fallbackLogo ?? ""}
+      alt={`${code} logo`}
+      className={className ?? "h-5 w-5 rounded-sm border border-slate-200 bg-white object-contain p-0.5"}
+      loading="lazy"
+      onError={() => {
+        if (!useFallback && fallbackLogo) {
+          setUseFallback(true);
+          return;
+        }
+        setFailed(true);
+      }}
+    />
+  );
 };
 
 const ChartShell: React.FC<{
@@ -146,110 +199,95 @@ const BookingsOverTimeChart: React.FC<{
   );
 };
 
-const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) => {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-
-  const sortedRows = useMemo(
-    () => [...airlines].sort((a, b) => b.count - a.count),
-    [airlines]
+const TopAirlinesTooltip: React.FC<{
+  active?: boolean;
+  payload?: Array<{ value?: number; payload?: { airline?: string; count?: number } }>;
+  label?: string | number;
+}> = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  const code = point?.airline ?? String(label ?? "");
+  const count = Number(point?.count ?? payload[0]?.value ?? 0);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+      <div className="flex items-center gap-2">
+        <AirlineLogo
+          code={code}
+          className="h-4 w-4 rounded-sm border border-slate-200 bg-white object-contain p-0.5"
+        />
+        <span className="font-semibold text-slate-700">{formatAirlineLabel(code)}</span>
+      </div>
+      <p className="mt-1 text-slate-600">{count.toLocaleString("en-US")} bookings</p>
+    </div>
   );
+};
 
-  const pieData = useMemo(
+const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) => {
+  const sortedRows = useMemo(() => [...airlines].sort((a, b) => b.count - a.count), [airlines]);
+  const pieRows = useMemo(
     () =>
       sortedRows.map((row) => ({
-        name: row.airline_code,
-        value: row.pct,
+        airline: row.airline_code,
         count: row.count,
       })),
     [sortedRows]
   );
-
   const totalBookings = useMemo(
     () => sortedRows.reduce((sum, row) => sum + row.count, 0),
     [sortedRows]
   );
+  const piePalette = ["#0D9488", "#14B8A6", "#22D3EE", "#60A5FA", "#818CF8", "#A78BFA"];
 
   return (
-    <div className="mt-4 flex h-full min-h-[14rem] flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:gap-8">
-      <div className="relative mx-auto flex h-[200px] w-[200px] shrink-0 sm:h-[220px] sm:w-[220px]">
+    <div className="mt-4 flex h-[17rem] gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="relative h-full w-[46%] min-w-[10rem]">
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <PieChart>
             <Pie
-              data={pieData}
-              dataKey="value"
-              nameKey="name"
-              cx="50%"
-              cy="50%"
+              data={pieRows}
+              dataKey="count"
+              nameKey="airline"
               innerRadius="58%"
               outerRadius="88%"
-              paddingAngle={2.5}
-              startAngle={90}
-              endAngle={-270}
-              stroke="#ffffff"
+              paddingAngle={2}
+              stroke="#fff"
               strokeWidth={2}
-              onMouseEnter={(_, index) => setActiveIndex(index)}
-              onMouseLeave={() => setActiveIndex(null)}
             >
-              {pieData.map((_, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={PIE_COLORS[index % PIE_COLORS.length]}
-                  opacity={activeIndex === null || activeIndex === index ? 1 : 0.45}
-                  style={{ transition: "opacity 0.15s ease" }}
-                />
+              {pieRows.map((_, index) => (
+                <Cell key={`top-airline-${index}`} fill={piePalette[index % piePalette.length]} />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{
-                borderRadius: 10,
-                borderColor: "#E5E7EB",
-                fontSize: 12,
-              }}
-              formatter={(value: number, _name, item) => {
-                const payload = item?.payload as {
-                  name: string;
-                  value: number;
-                  count: number;
-                };
-                const pct = typeof value === "number" ? value : Number(value);
-                return [
-                  `${payload.count.toLocaleString("en-US")} bookings · ${pct.toFixed(1)}%`,
-                  legendLabel(payload.name),
-                ];
-              }}
-            />
+            <Tooltip content={<TopAirlinesTooltip />} />
           </PieChart>
         </ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-0.5">
-          <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[1.65rem]">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold tabular-nums text-slate-900">
             {totalBookings.toLocaleString("en-US")}
           </span>
-          <span className="mt-0.5 text-xs font-medium text-slate-500">Total</span>
+          <span className="text-xs text-slate-500">Total</span>
         </div>
       </div>
 
-      <div className="mt-6 min-w-0 flex-1 space-y-2.5 sm:mt-0">
-        {sortedRows.map((row, index) => (
-          <div
-            key={row.airline_code}
-            className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-3 gap-y-0.5 text-sm"
-          >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/5"
-              style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
-              aria-hidden
-            />
-            <span className="min-w-0 truncate font-medium text-slate-800">
-              {legendLabel(row.airline_code)}
-            </span>
-            <span className="shrink-0 tabular-nums text-right font-semibold text-slate-900">
-              {row.count.toLocaleString("en-US")}
-            </span>
-            <span className="w-[3.25rem] shrink-0 tabular-nums text-right text-slate-500">
-              {row.pct.toFixed(1)}%
-            </span>
-          </div>
-        ))}
+      <div className="flex-1 overflow-y-auto pr-1">
+        <div className="space-y-2">
+          {sortedRows.map((row, index) => {
+            const pct = totalBookings > 0 ? (row.count / totalBookings) * 100 : 0;
+            return (
+              <div key={row.airline_code} className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5 text-sm">
+                <AirlineLogo
+                  code={row.airline_code}
+                  className="h-5 w-5 rounded-sm border border-slate-200 bg-white object-contain p-0.5"
+                />
+                <span className="min-w-0 font-medium text-slate-700">
+                  {formatAirlineLabel(row.airline_code)}
+                </span>
+                <span className="tabular-nums text-right text-slate-600">
+                  {row.count.toLocaleString("en-US")} ({pct.toFixed(1)}%)
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -350,81 +388,189 @@ const TopRoutesChart: React.FC<{ routes: RouteVolume[] }> = ({ routes }) => {
   );
 };
 
+const NetAmountsChart: React.FC<{
+  data: NetAmountPoint[];
+  periodLabel: string;
+}> = ({ data, periodLabel }) => {
+  return (
+    <div className="mt-4 h-full rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+          <XAxis
+            dataKey="period"
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11, fill: "#6B7280" }}
+          />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11, fill: "#6B7280" }}
+            allowDecimals={true}
+          />
+          <Tooltip
+            cursor={{ fill: "rgba(13, 148, 136, 0.08)" }}
+            contentStyle={{
+              borderRadius: 10,
+              borderColor: "#E5E7EB",
+              fontSize: 12,
+            }}
+            formatter={(value: number) => [`₱${value.toFixed(2)}M`, "Net Amount"]}
+            labelFormatter={(label) => `${periodLabel}: ${label}`}
+          />
+          <Bar dataKey="amount" name="Net Amount (₱M)" fill="#14B8A6" radius={[6, 6, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+const DataQualityPanel: React.FC<{ items: DataQualityItem[] }> = ({ items }) => (
+  <div className="mt-4 h-full min-h-0 rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="h-full min-h-0 space-y-2.5 overflow-y-auto pr-1">
+      {items.slice(0, 5).map((item) => {
+        const severity =
+          item.count >= 1000 ? "High" : item.count >= 300 ? "Medium" : item.count > 0 ? "Low" : "None";
+        const severityClass =
+          severity === "High"
+            ? "bg-rose-100 text-rose-700"
+            : severity === "Medium"
+              ? "bg-amber-100 text-amber-700"
+              : severity === "Low"
+                ? "bg-yellow-100 text-yellow-700"
+                : "bg-emerald-100 text-emerald-700";
+        const widthPct = Math.min(100, Math.max(6, (item.count / 2000) * 100));
+
+        return (
+          <div
+            key={item.label}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+          >
+            <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
+              <span className="min-w-0 truncate text-sm font-medium text-slate-700">{item.label}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${severityClass}`}>
+                {severity}
+              </span>
+              <span className="text-sm font-semibold tabular-nums text-slate-700">
+                {item.count.toLocaleString("en-US")}
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full ${
+                  severity === "High"
+                    ? "bg-rose-500"
+                    : severity === "Medium"
+                      ? "bg-amber-500"
+                      : severity === "Low"
+                        ? "bg-yellow-500"
+                        : "bg-emerald-500"
+                }`}
+                style={{ width: `${item.count === 0 ? 4 : widthPct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {items.length > 5 && (
+        <p className="pt-1 text-xs font-medium text-slate-500">
+          Showing top 5 issues for compact view.
+        </p>
+      )}
+    </div>
+  </div>
+);
+
 export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
   bookingsByYear,
+  netAmounts,
   topAirlines,
   leadTimeDistribution,
   topRoutes,
-  showBookingsOverTime = true,
-  showBreakdownCharts = true,
+  dataQualityItems,
   bookingsOverTimeDescription = "Total bookings by year from the linked dataset.",
   bookingsPeriodLabel = "Year",
 }) => {
   const hasAirlines = Boolean(topAirlines && topAirlines.length > 0);
   const hasLeadBuckets = Boolean(leadTimeDistribution && leadTimeDistribution.length > 0);
   const hasTopRoutes = Boolean(topRoutes && topRoutes.length > 0);
+  const qualityRows = dataQualityItems ?? [];
+  const hasQualityRows = qualityRows.length > 0;
 
   return (
     <>
-      {showBookingsOverTime && (
-        <section className="grid gap-4">
-          <ChartShell
-            title="Bookings Over Time"
-            description={bookingsOverTimeDescription}
-            heightClassName="h-72"
-          >
-            <BookingsOverTimeChart data={bookingsByYear} periodLabel={bookingsPeriodLabel} />
-          </ChartShell>
-        </section>
-      )}
+      <section className="grid gap-4 lg:grid-cols-2">
+        <ChartShell
+          title="Bookings Over Time"
+          description={bookingsOverTimeDescription}
+          heightClassName="h-72"
+        >
+          <BookingsOverTimeChart data={bookingsByYear} periodLabel={bookingsPeriodLabel} />
+        </ChartShell>
+        <ChartShell
+          title="Net Amounts"
+          description={`Net revenue in millions by ${bookingsPeriodLabel.toLowerCase()}.`}
+          heightClassName="h-72"
+        >
+          <NetAmountsChart data={netAmounts} periodLabel={bookingsPeriodLabel} />
+        </ChartShell>
+      </section>
 
-      {showBreakdownCharts && (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-            <ChartShell
-              title="Top Airlines"
-              description="Share of total bookings"
-              heightClassName="h-80 min-h-[18rem] sm:min-h-[20rem]"
-            >
-              {hasAirlines ? (
-                <TopAirlinesChart airlines={topAirlines!} />
-              ) : (
-                <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-                  No airline breakdown available for this model snapshot.
-                </div>
-              )}
-            </ChartShell>
-
-            <ChartShell
-              title="Top Routes by Booking Volume"
-              description="Total bookings by route"
-              heightClassName="h-80 min-h-[18rem]"
-            >
-              {hasTopRoutes ? (
-                <TopRoutesChart routes={topRoutes!} />
-              ) : (
-                <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-                  No route breakdown available for this model snapshot.
-                </div>
-              )}
-            </ChartShell>
-          </div>
-
-          <ChartShell
-            title="Lead Time Distribution"
-            description="Booking volume by lead-time bucket (from backend lead_time_distribution)."
-            heightClassName="h-[40.5rem]"
-          >
-            {hasLeadBuckets ? (
-              <LeadTimeDistributionChart buckets={leadTimeDistribution!} />
-            ) : (
-              <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-                No lead-time histogram available for this model snapshot.
-              </div>
-            )}
-          </ChartShell>
-        </section>
-      )}
+      <section className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-4">
+        <ChartShell
+          title="Top Routes by Booking Count"
+          description="Most booked routes in the selected period."
+          heightClassName="h-72 2xl:h-80"
+        >
+          {hasTopRoutes ? (
+            <TopRoutesChart routes={topRoutes!} />
+          ) : (
+            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+              No route breakdown available for this model snapshot.
+            </div>
+          )}
+        </ChartShell>
+        <ChartShell
+          title="Top Airlines by Booking Count"
+          description="Airlines ranked by booking count."
+          heightClassName="h-72 2xl:h-80"
+        >
+          {hasAirlines ? (
+            <TopAirlinesChart airlines={topAirlines!} />
+          ) : (
+            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+              No airline breakdown available for this model snapshot.
+            </div>
+          )}
+        </ChartShell>
+        <ChartShell
+          title="Lead Time Distribution"
+          description="Booking volume by lead-time bucket."
+          heightClassName="h-72 2xl:h-80"
+        >
+          {hasLeadBuckets ? (
+            <LeadTimeDistributionChart buckets={leadTimeDistribution!} />
+          ) : (
+            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+              No lead-time histogram available for this model snapshot.
+            </div>
+          )}
+        </ChartShell>
+        <ChartShell
+          title="Data Quality"
+          description="Summary of data issues found in the ingested dataset."
+          heightClassName="h-72 2xl:h-80"
+        >
+          {hasQualityRows ? (
+            <DataQualityPanel items={qualityRows} />
+          ) : (
+            <div className="mt-4 flex h-full min-h-[14rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+              No data quality report available for this model snapshot.
+            </div>
+          )}
+        </ChartShell>
+      </section>
     </>
   );
 };

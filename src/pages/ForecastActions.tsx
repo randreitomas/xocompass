@@ -396,7 +396,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   return (
     <div className="relative min-h-full">
       <div
-        className={`min-h-full bg-[#F4FFF8] px-6 py-6 -m-8 ${
+        className={`min-h-full bg-[#F9FAFB] px-6 py-6 -m-8 ${
           shouldShowColdStart ? "pointer-events-none select-none grayscale saturate-0" : ""
         }`}
       >

@@ -69,7 +69,7 @@ const FLIP_METRICS: FlipMetric[] = [
     value: "4.62%",
     expandedLabel: "Weighted Mean Absolute Percentage Error",
     description:
-      "WMAPE measures weighted forecast error across booking volumes, so it reflects business impact better than plain percentage error in SARIMAX tourism demand forecasting. Optimal: Lower is better.",
+      "Weighted forecast error across booking volumes. Lower is better and reflects business impact directly.",
   },
   {
     id: "mae",
@@ -77,7 +77,7 @@ const FLIP_METRICS: FlipMetric[] = [
     value: "112.30",
     expandedLabel: "Mean Absolute Error",
     description:
-      "MAE captures the average absolute deviation between predicted and actual weekly bookings and is easy to interpret in booking units. Optimal: Lower is better.",
+      "Average absolute gap between predicted and actual weekly bookings. Lower is better.",
   },
   {
     id: "rmse",
@@ -85,28 +85,28 @@ const FLIP_METRICS: FlipMetric[] = [
     value: "158.47",
     expandedLabel: "Root Mean Squared Error",
     description:
-      "RMSE penalizes larger misses more heavily, which helps detect costly peak-season forecast errors in SARIMAX tourism demand models. Optimal: Lower is better.",
+      "Error metric that penalizes large misses more strongly. Lower is better.",
   },
   {
     id: "ljung-box",
     label: "Ljung-Box p-value",
     value: "0.0812",
     description:
-      "The Ljung-Box p-value checks if residual autocorrelation remains after SARIMAX fitting, indicating whether patterns were left unexplained. Optimal: Higher is better, typically above 0.05.",
+      "Checks residual autocorrelation after fitting. Higher is better; typically above 0.05.",
   },
   {
     id: "selected-order",
     label: "Selected Order (p,d,q)",
     value: "(2,1,1)",
     description:
-      "Selected Order defines the non-seasonal SARIMAX structure controlling autoregression, differencing, and moving-average behavior for weekly bookings. Optimal: Best-performing parsimonious order, not strictly higher or lower.",
+      "Non-seasonal SARIMAX structure (autoregression, differencing, moving average). Choose the best parsimonious fit.",
   },
   {
     id: "seasonal-order",
     label: "Seasonal Order (P,D,Q,s)",
     value: "(1,0,1,52)",
     description:
-      "Seasonal Order models recurring weekly tourism demand cycles and seasonal shocks, with s representing seasonal period length. Optimal: Best-fitting stable seasonal structure, not strictly higher or lower.",
+      "Seasonal SARIMAX structure for recurring demand cycles (s is seasonal period). Use the most stable best fit.",
   },
 ];
 
@@ -122,7 +122,7 @@ const FlipCard: React.FC<FlipCardProps> = ({
   <button
     type="button"
     onClick={() => onToggle(id)}
-    className="group perspective h-52 w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+    className="group perspective h-56 w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 xl:h-52"
     aria-pressed={isFlipped}
     aria-label={`Flip ${label} card`}
   >
@@ -146,11 +146,16 @@ const FlipCard: React.FC<FlipCardProps> = ({
         </p>
       </div>
 
-      <div className="backface-hidden rotate-y-180 absolute inset-0 rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
+      <div className="backface-hidden rotate-y-180 absolute inset-0 flex min-h-0 flex-col rounded-2xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
           {label}
         </p>
-        <p className="mt-2 text-sm leading-relaxed text-teal-900">{description}</p>
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+          <p className="text-sm leading-relaxed text-teal-900">{description}</p>
+        </div>
+        <p className="mt-3 text-xs font-medium text-teal-700">
+          Click card to return.
+        </p>
       </div>
     </div>
   </button>
@@ -441,7 +446,7 @@ export const AdvancedMetrics: React.FC = () => {
   };
 
   return (
-    <div className="min-h-full w-full space-y-8 bg-[#F4FFF8]">
+    <div className="min-h-full w-full space-y-8 bg-[#F9FAFB]">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-slate-900">

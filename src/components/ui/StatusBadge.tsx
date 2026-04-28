@@ -10,7 +10,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   tone = "default",
 }) => {
   const toneMap: Record<
-    StatusBadgeProps["tone"],
+    NonNullable<StatusBadgeProps["tone"]>,
     { bg: string; text: string }
   > = {
     success: { bg: "bg-emerald-50", text: "text-emerald-700" },
