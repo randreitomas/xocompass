@@ -270,8 +270,8 @@ const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) 
         </div>
       </div>
 
-      <div className="flex min-h-0 items-center overflow-y-auto pr-1">
-        <div className="w-full space-y-2">
+      <div className="flex h-full min-h-0 items-center pr-1">
+        <div className="max-h-full w-full space-y-2 overflow-y-auto">
           {sortedRows.map((row, index) => {
             const pct = totalBookings > 0 ? (row.count / totalBookings) * 100 : 0;
             return (
