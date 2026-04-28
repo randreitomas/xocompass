@@ -215,7 +215,9 @@ const TopAirlinesTooltip: React.FC<{
           code={code}
           className="h-4 w-4 rounded-sm border border-slate-200 bg-white object-contain p-0.5"
         />
-        <span className="font-semibold text-slate-700">{formatAirlineLabel(code)}</span>
+        <span className="text-xs font-semibold leading-tight text-slate-700">
+          {formatAirlineLabel(code)}
+        </span>
       </div>
       <p className="mt-1 text-slate-600">{count.toLocaleString("en-US")} bookings</p>
     </div>
@@ -278,7 +280,7 @@ const TopAirlinesChart: React.FC<{ airlines: AirlineCount[] }> = ({ airlines }) 
                   code={row.airline_code}
                   className="h-5 w-5 rounded-sm border border-slate-200 bg-white object-contain p-0.5"
                 />
-                <span className="min-w-0 font-medium text-slate-700">
+                <span className="min-w-0 text-xs font-medium leading-tight text-slate-700 sm:text-sm">
                   {formatAirlineLabel(row.airline_code)}
                 </span>
                 <span className="tabular-nums text-right text-slate-600">
