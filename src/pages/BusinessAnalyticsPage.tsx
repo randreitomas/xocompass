@@ -105,7 +105,7 @@ interface ModelsResponse {
   available_models: BackendModel[];
 }
 
-interface SimplifiedMetricsProps {
+interface BusinessAnalyticsPageProps {
   isBackgroundPreview?: boolean;
 }
 
@@ -197,7 +197,7 @@ const StatCard: React.FC<StatCardProps> = ({
   </button>
 );
 
-export const SimplifiedMetrics: React.FC<SimplifiedMetricsProps> = ({
+export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
   isBackgroundPreview = false,
 }) => {
   const navigate = useNavigate();

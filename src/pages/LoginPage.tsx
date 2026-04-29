@@ -1,12 +1,22 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { AppRole } from "../lib/accessControl";
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const [selectedRole, setSelectedRole] = React.useState<AppRole>("Manager");
+  const [email, setEmail] = React.useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/saves");
+    localStorage.setItem("xocompass:userRole", selectedRole);
+    localStorage.setItem("xocompass:userEmail", email || `${selectedRole.toLowerCase()}@xocompass.com`);
+    localStorage.setItem("xocompass:userName", selectedRole);
+    if (selectedRole === "Analyst") {
+      navigate("/saves");
+      return;
+    }
+    navigate("/business-analytics");
   };
 
   return (
@@ -60,9 +70,28 @@ export const LoginPage: React.FC = () => {
                   id="email"
                   type="email"
                   required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none ring-teal-500/0 transition focus:bg-white focus:ring-2"
                   placeholder="you@kjs-travel.com"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="role" className="text-xs font-medium text-slate-700">
+                  Role
+                </label>
+                <select
+                  id="role"
+                  value={selectedRole}
+                  onChange={(event) => setSelectedRole(event.target.value as AppRole)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none ring-teal-500/0 transition focus:bg-white focus:ring-2"
+                >
+                  <option value="Admin">Admin</option>
+                  <option value="Manager">Manager/Owner</option>
+                  <option value="Analyst">Analyst</option>
+                  <option value="Marketing">Marketing</option>
+                </select>
               </div>
 
               <div>

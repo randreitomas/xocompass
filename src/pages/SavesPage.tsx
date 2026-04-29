@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiUrl } from "../lib/api";
-import { SimplifiedMetrics } from "./SimplifiedMetrics";
+import { BusinessAnalyticsPage } from "./BusinessAnalyticsPage";
 import { Sidebar } from "../components/layout/Sidebar";
 import { Header } from "../components/layout/Header";
 
@@ -395,7 +395,7 @@ export const SavesPage: React.FC = () => {
   const handleOpenSave = (model: BackendModel, index: number) => {
     setActiveModelId(model.id);
     showToast(`Loaded "${getDisplayName(model, index)}"`);
-    navigate("/simplified", {
+    navigate("/business-analytics", {
       state: {
         selectedModelId: model.id,
         selectedModelVersion: model.version,
@@ -600,7 +600,7 @@ export const SavesPage: React.FC = () => {
       showToast(`Pipeline completed in ${elapsedSeconds}s. Loading dashboard...`);
 
       window.setTimeout(() => {
-        navigate("/simplified", {
+        navigate("/business-analytics", {
           state: {
             selectedModelId: latestModel.id,
             selectedModelVersion: latestModel.version,
@@ -632,7 +632,7 @@ export const SavesPage: React.FC = () => {
               <div className="ml-64 flex flex-1 flex-col">
                 <Header pageTitle="Business Analytics Dashboard" />
                 <main className="flex-1 overflow-hidden bg-gray-50 p-8">
-                  <SimplifiedMetrics isBackgroundPreview={true} />
+                  <BusinessAnalyticsPage isBackgroundPreview={true} />
                 </main>
               </div>
             </div>

@@ -22,7 +22,7 @@ const groups: Record<string, FaqItem[]> = {
     {
       question: "How is Growth % calculated?",
       answer:
-        "Growth is calculated as the blended year-over-year rate across bookings and revenue, adjusted for seasonality and calendar effects. It appears on the Business Analytics Dashboard (Simplified Metrics) in the Data Overview.",
+        "Growth is calculated as the blended year-over-year rate across bookings and revenue, adjusted for seasonality and calendar effects. It appears on the Business Analytics Dashboard in the Data Overview.",
     },
     {
       question: "What do WMAPE, RMSE, and MAE mean?",

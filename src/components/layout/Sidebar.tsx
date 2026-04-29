@@ -5,12 +5,15 @@ import {
   TrendingUp,
   LineChart,
   HelpCircle,
+  Database,
+  ShieldCheck,
   User,
   ChevronLeft,
   ChevronRight,
   LogOut,
 } from "lucide-react";
 import sidebarLogoSrc from "../../assets/xocompass-logo.png";
+import { getStoredRole } from "../../lib/accessControl";
 
 const navItemBase = "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
 const navItemInactive = "text-slate-300 hover:bg-white/10 hover:text-white";
@@ -22,10 +25,19 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
   const navigate = useNavigate();
+  const role = getStoredRole() ?? "Marketing";
+  const isAdmin = role === "Admin";
+  const canAccessAdvanced = role === "Admin" || role === "Manager" || role === "Analyst";
+  const canAccessSaves = role === "Analyst";
+  const profileEmail = localStorage.getItem("xocompass:userEmail") ?? "user@xocompass.com";
+  const profileName = localStorage.getItem("xocompass:userName") ?? role;
 
   const handleLogout = () => {
     localStorage.removeItem("xocompass:selectedModelId");
     localStorage.removeItem("xocompass:selectedModelVersion");
+    localStorage.removeItem("xocompass:userRole");
+    localStorage.removeItem("xocompass:userEmail");
+    localStorage.removeItem("xocompass:userName");
     navigate("/login");
   };
 
@@ -62,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         )}
 
         <NavLink
-          to="/simplified"
+          to="/business-analytics"
           className={({ isActive }) =>
             `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
           }
@@ -83,16 +95,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           {!isCollapsed && <span>Forecast & Actions</span>}
         </NavLink>
 
-        <NavLink
-          to="/advanced"
-          className={({ isActive }) =>
-            `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
-          }
-          title="Advanced Metrics"
-        >
-          <LineChart size={16} />
-          {!isCollapsed && <span>Advanced Metrics</span>}
-        </NavLink>
+        {canAccessAdvanced && (
+          <NavLink
+            to="/advanced"
+            className={({ isActive }) =>
+              `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
+            }
+            title="Advanced Metrics"
+          >
+            <LineChart size={16} />
+            {!isCollapsed && <span>Advanced Metrics</span>}
+          </NavLink>
+        )}
+
+        {canAccessSaves && (
+          <NavLink
+            to="/saves"
+            className={({ isActive }) =>
+              `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
+            }
+            title="Saves"
+          >
+            <Database size={16} />
+            {!isCollapsed && <span>Saves</span>}
+          </NavLink>
+        )}
 
         <NavLink
           to="/faqs"
@@ -104,6 +131,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           <HelpCircle size={16} />
           {!isCollapsed && <span>FAQs</span>}
         </NavLink>
+
+        {isAdmin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
+            }
+            title="Admin Console"
+          >
+            <ShieldCheck size={16} />
+            {!isCollapsed && <span>Admin Console</span>}
+          </NavLink>
+        )}
       </nav>
 
       <div className={`${isCollapsed ? "px-2" : "px-4"} pb-2`}>
@@ -133,9 +173,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           </div>
           {!isCollapsed && (
             <div className="flex flex-col">
-              <span className="text-sm font-semibold text-white">Admin</span>
+              <span className="text-sm font-semibold text-white">{profileName}</span>
               <span className="text-sm text-slate-500">
-                admin@xocompass.com
+                {profileEmail}
               </span>
               <button
                 type="button"
