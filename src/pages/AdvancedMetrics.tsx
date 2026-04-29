@@ -63,11 +63,21 @@ interface AdvancedMetricsResponse {
   statistical_tests: {
     ljungbox_pvalue: number;
     jarque_bera?: number;
+    jarquebera_stat?: number;
+    jarquebera_pvalue?: number;
     adf_pvalue?: number;
+    adf_stat?: number;
   };
   charts: {
     residuals: { fitted: number; residual: number }[];
     correlation_heatmap: { variable: string; correlation: number }[];
+    validation_graph?: {
+      date_label: string;
+      actual: number;
+      forecasted: number;
+      lower_ci: number;
+      upper_ci: number;
+    }[];
   };
 }
 const MetricCard: React.FC<MetricCardProps> = ({
@@ -112,10 +122,29 @@ const MetricCard: React.FC<MetricCardProps> = ({
   </button>
 );
 
-const ValidationGraph: React.FC<{ residuals?: { fitted: number; residual: number }[] }> = ({
+const ValidationGraph: React.FC<{
+  residuals?: { fitted: number; residual: number }[];
+  validationGraph?: {
+    date_label: string;
+    actual: number;
+    forecasted: number;
+    lower_ci: number;
+    upper_ci: number;
+  }[];
+}> = ({
   residuals,
+  validationGraph,
 }) => {
   const lineData = useMemo(() => {
+    if (validationGraph && validationGraph.length > 0) {
+      return validationGraph.map((point) => ({
+        weekLabel: point.date_label,
+        actual: point.actual,
+        forecasted: point.forecasted,
+        upperCI: point.upper_ci,
+        lowerCI: point.lower_ci,
+      }));
+    }
     // Fixed placeholder sequence aligned with ForecastActions historical simulation.
     const fallbackActual = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
     const anchorDate = new Date("2025-12-22T00:00:00");
@@ -144,7 +173,7 @@ const ValidationGraph: React.FC<{ residuals?: { fitted: number; residual: number
       };
     });
     return rows;
-  }, [residuals]);
+  }, [residuals, validationGraph]);
 
   return (
     <div className="mt-4 h-[21rem] rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -539,9 +568,16 @@ export const AdvancedMetrics: React.FC = () => {
       try {
         setIsLoading(true);
         setLoadError("");
-        const data = await fetchJson<AdvancedMetricsResponse>(
-          apiRoutes.advancedMetrics(effectiveModelId)
-        );
+        let data: AdvancedMetricsResponse;
+        try {
+          data = await fetchJson<AdvancedMetricsResponse>(
+            apiRoutes.advancedMetrics(effectiveModelId)
+          );
+        } catch {
+          data = await fetchJson<AdvancedMetricsResponse>(
+            apiRoutes.legacyAdvancedMetrics(effectiveModelId)
+          );
+        }
         setAdvancedMetrics(data);
       } catch (error) {
         console.error("Unable to load advanced metrics:", error);
@@ -578,7 +614,10 @@ export const AdvancedMetrics: React.FC = () => {
   );
   const validationSummary = useMemo(() => {
     const ljung = advancedMetrics?.statistical_tests.ljungbox_pvalue ?? 0.0812;
-    const jarque = advancedMetrics?.statistical_tests.jarque_bera ?? 2.91;
+    const jarque =
+      advancedMetrics?.statistical_tests.jarquebera_stat ??
+      advancedMetrics?.statistical_tests.jarque_bera ??
+      2.91;
     const adf = advancedMetrics?.statistical_tests.adf_pvalue ?? 0.034;
     const wmape = advancedMetrics?.statistics.wmape ?? 4.62;
     return [
@@ -683,7 +722,10 @@ export const AdvancedMetrics: React.FC = () => {
         <p className="mt-1 text-sm text-slate-500">
           Historical validation comparison showing model accuracy behavior.
         </p>
-        <ValidationGraph residuals={advancedMetrics?.charts.residuals} />
+        <ValidationGraph
+          residuals={advancedMetrics?.charts.residuals}
+          validationGraph={advancedMetrics?.charts.validation_graph}
+        />
       </section>
 
       <section className="grid min-h-0 w-full max-w-full grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
@@ -765,7 +807,11 @@ export const AdvancedMetrics: React.FC = () => {
                     Jarque-Bera
                   </p>
                   <p className="mt-1 text-lg font-bold text-slate-900">
-                    {(advancedMetrics?.statistical_tests.jarque_bera ?? 2.91).toFixed(2)}
+                    {(
+                      advancedMetrics?.statistical_tests.jarquebera_stat ??
+                      advancedMetrics?.statistical_tests.jarque_bera ??
+                      2.91
+                    ).toFixed(2)}
                   </p>
                   <p className="mt-1 text-[11px] text-slate-500">Residual normality signal</p>
                 </div>

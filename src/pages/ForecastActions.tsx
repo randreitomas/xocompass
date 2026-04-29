@@ -40,7 +40,21 @@ interface ForecastOutlookResponse {
     week_start: string;
     forecasted_volume: number;
     risk_factor: "HIGH" | "MEDIUM" | "LOW";
+    confidence_tier?: string;
   }[];
+}
+
+interface ForecastGraphPoint {
+  date: string;
+  actual: number | null;
+  predicted: number | null;
+  lower_bound: number | null;
+  upper_bound: number | null;
+  confidence_tier: string | null;
+}
+
+interface ForecastGraphResponse {
+  data: ForecastGraphPoint[];
 }
 
 interface MetricsRouteState {
@@ -451,6 +465,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
 
   const [forecastOutlook, setForecastOutlook] =
     useState<ForecastOutlookResponse | null>(null);
+  const [forecastGraph, setForecastGraph] = useState<ForecastGraphResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [models, setModels] = useState<BackendModel[]>([]);
@@ -491,6 +506,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   useEffect(() => {
     if (shouldShowColdStart) {
       setForecastOutlook(null);
+      setForecastGraph(null);
       setIsLoading(false);
       setLoadError("");
       return;
@@ -501,10 +517,30 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         setIsLoading(true);
         setLoadError("");
 
-        const data = await fetchJson<ForecastOutlookResponse>(
-          apiRoutes.forecastOutlook(effectiveModelId)
-        );
-        setForecastOutlook(data);
+        let outlookData: ForecastOutlookResponse;
+        try {
+          outlookData = await fetchJson<ForecastOutlookResponse>(
+            apiRoutes.forecastKpis(effectiveModelId)
+          );
+        } catch {
+          outlookData = await fetchJson<ForecastOutlookResponse>(
+            apiRoutes.legacyForecastOutlook(effectiveModelId)
+          );
+        }
+
+        let graphData: ForecastGraphResponse;
+        try {
+          graphData = await fetchJson<ForecastGraphResponse>(
+            apiRoutes.forecastGraph(effectiveModelId)
+          );
+        } catch {
+          graphData = await fetchJson<ForecastGraphResponse>(
+            apiRoutes.legacyForecastGraph(effectiveModelId)
+          );
+        }
+
+        setForecastOutlook(outlookData);
+        setForecastGraph(graphData);
       } catch (error) {
         console.error("Unable to load forecast outlook:", error);
         setLoadError("Unable to load forecast outlook.");
@@ -586,14 +622,24 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         { week: "Week 3", forecastedVolume: 1735, riskFactor: "Low" },
       ];
   const demandSeries = useMemo<DemandSeriesPoint[]>(() => {
-    // Keep placeholder consistency with AdvancedMetrics forecasted line.
-    const advancedActualSeed = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
-    const advancedForecastedSeed = advancedActualSeed.map((actual, index) =>
-      Math.max(Number((actual * 0.92 + Math.sin(index * 0.6) * 0.9).toFixed(1)), 0)
+    const graphRows = forecastGraph?.data ?? [];
+    const backtestRows = graphRows.filter(
+      (row) => row.actual != null && row.predicted != null
     );
-    const historicalSeed = advancedForecastedSeed.slice(-historicalHorizonWeeks);
+    const forwardRows = graphRows.filter(
+      (row) => row.actual == null && row.predicted != null
+    );
+    const outlookWeeks = forecastOutlook?.critical_weeks ?? [];
+    const historicalSeed = backtestRows.length
+      ? backtestRows.slice(-historicalHorizonWeeks).map((row) => row.predicted as number)
+      : outlookWeeks.slice(0, historicalHorizonWeeks).map((week, index) => {
+          const damping = 1 - Math.min(0.08, (historicalHorizonWeeks - index) * 0.015);
+          return Number((week.forecasted_volume * damping).toFixed(1));
+        });
     const firstForecastDate =
-      forecastOutlook?.critical_weeks?.[0]?.week_start != null
+      forwardRows[0]?.date != null
+        ? new Date(forwardRows[0].date)
+        : forecastOutlook?.critical_weeks?.[0]?.week_start != null
         ? new Date(forecastOutlook.critical_weeks[0].week_start)
         : new Date();
     const historicalRows = historicalSeed.map((value, index) => {
@@ -611,17 +657,45 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       };
     });
     const totalForwardWeeks = nearForecastHorizonWeeks + beyondForecastHorizonWeeks;
-    const nearSeed = forecastData.slice(0, nearForecastHorizonWeeks).map((item) => item.predicted);
-    const fallbackNearSeed = [12.6, 13.1];
-    const nearValues = nearSeed.length === nearForecastHorizonWeeks ? nearSeed : fallbackNearSeed;
-    const trendStart = nearValues[nearValues.length - 1] ?? nearValues[0] ?? historicalSeed[historicalSeed.length - 1] ?? 11.8;
-    const beyondValues = Array.from({ length: beyondForecastHorizonWeeks }, (_, index) =>
-      Number((trendStart + (index + 1) * 0.35 + Math.sin((index + 1) * 0.7) * 0.4).toFixed(1))
+    const nearValues =
+      forwardRows.length > 0
+        ? forwardRows
+            .slice(0, nearForecastHorizonWeeks)
+            .map((item) => item.predicted as number)
+        : outlookWeeks.slice(0, nearForecastHorizonWeeks).map((week) => week.forecasted_volume);
+    const beyondValuesFromApi =
+      forwardRows.length > nearForecastHorizonWeeks
+        ? forwardRows
+            .slice(nearForecastHorizonWeeks, nearForecastHorizonWeeks + beyondForecastHorizonWeeks)
+            .map((item) => item.predicted as number)
+        : outlookWeeks
+            .slice(nearForecastHorizonWeeks, nearForecastHorizonWeeks + beyondForecastHorizonWeeks)
+            .map((week) => week.forecasted_volume);
+    const trendStart =
+      beyondValuesFromApi[0] ??
+      nearValues[nearValues.length - 1] ??
+      historicalSeed[historicalSeed.length - 1] ??
+      0;
+    const beyondValues =
+      beyondValuesFromApi.length >= beyondForecastHorizonWeeks
+        ? beyondValuesFromApi
+        : [
+            ...beyondValuesFromApi,
+            ...Array.from(
+              { length: Math.max(beyondForecastHorizonWeeks - beyondValuesFromApi.length, 0) },
+              (_, index) => Number((trendStart * (1 + (index + 1) * 0.01)).toFixed(1))
+            ),
+          ];
+    const forwardValues = [...nearValues, ...beyondValues].slice(
+      0,
+      nearForecastHorizonWeeks + beyondForecastHorizonWeeks
     );
-    const forwardValues = [...nearValues, ...beyondValues];
     const forecastRows = forwardValues.slice(0, totalForwardWeeks).map((predictedValue, index) => {
+      const graphRow = forwardRows[index];
       const forecastDate =
-        forecastOutlook?.critical_weeks?.[index]?.week_start != null
+        graphRow?.date != null
+          ? new Date(graphRow.date)
+          : forecastOutlook?.critical_weeks?.[index]?.week_start != null
           ? new Date(forecastOutlook.critical_weeks[index].week_start)
           : (() => {
               const derived = new Date(firstForecastDate);
@@ -631,15 +705,23 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       const isBeyondWindow = index >= nearForecastHorizonWeeks;
       const ciRatio = isBeyondWindow ? 0.18 : 0.1;
       const ciFloor = isBeyondWindow ? 1.8 : 1.2;
-      const ciWidth = Number((Math.max(ciFloor, predictedValue * ciRatio)).toFixed(1));
+      const inferredCiWidth = Number((Math.max(ciFloor, predictedValue * ciRatio)).toFixed(1));
+      const lowerCI =
+        graphRow?.lower_bound != null
+          ? graphRow.lower_bound
+          : Math.max(Number((predictedValue - inferredCiWidth).toFixed(1)), 0);
+      const upperCI =
+        graphRow?.upper_bound != null
+          ? graphRow.upper_bound
+          : Number((predictedValue + inferredCiWidth).toFixed(1));
       return {
         week: formatWeekLabel(forecastDate),
         forecastHistory: null,
         // Keep one-point overlap so the near->beyond boundary is visually continuous.
         forecastNear: index <= nearForecastHorizonWeeks ? predictedValue : null,
         forecastBeyond: index >= nearForecastHorizonWeeks ? predictedValue : null,
-        lowerCI: Math.max(Number((predictedValue - ciWidth).toFixed(1)), 0),
-        upperCI: Number((predictedValue + ciWidth).toFixed(1)),
+        lowerCI,
+        upperCI,
         transition: index === 0 ? predictedValue : null,
       };
     });
@@ -647,6 +729,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   }, [
     beyondForecastHorizonWeeks,
     forecastData,
+    forecastGraph?.data,
     forecastOutlook?.critical_weeks,
     historicalHorizonWeeks,
     nearForecastHorizonWeeks,

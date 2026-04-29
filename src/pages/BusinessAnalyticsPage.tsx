@@ -86,8 +86,19 @@ interface BusinessAnalyticsResponse {
     span_weeks: number;
   };
   bookings_by_year: BookingsByYearPoint[];
+  bookings_by_month?: { month: string; bookings: number }[];
   top_airlines?: AirlineCount[];
   lead_time_distribution?: LeadTimeBucket[];
+  top_routes?: { route: string; count: number; pct: number }[];
+  data_quality?: {
+    duplicate_rows: number;
+    missing_route: number;
+    missing_airline: number;
+    missing_travel_date: number;
+    invalid_travel_date: number;
+    missing_revenue: number;
+  } | null;
+  available_years?: string[];
 }
 
 interface MetricsRouteState {
@@ -279,7 +290,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         setLoadError("");
 
         const data = await fetchJson<BusinessAnalyticsResponse>(
-          apiRoutes.businessAnalytics(effectiveModelId)
+          apiRoutes.businessAnalytics(effectiveModelId, selectedYearView)
         );
         setBusinessAnalytics(data);
       } catch (error) {
@@ -291,7 +302,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     };
 
     fetchBusinessAnalytics();
-  }, [effectiveModelId, shouldShowColdStart]);
+  }, [effectiveModelId, selectedYearView, shouldShowColdStart]);
 
   useEffect(() => {
     try {
@@ -308,12 +319,17 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     ? businessAnalytics.bookings_by_year
     : fallbackBookingsByYearData;
   const yearOptions = useMemo(
-    () =>
-      bookingsByYearData
-        .map((point) => Number(point.year))
+    () => {
+      const sourceYears =
+        businessAnalytics?.available_years && businessAnalytics.available_years.length > 0
+          ? businessAnalytics.available_years
+          : bookingsByYearData.map((point) => String(point.year));
+      return sourceYears
+        .map((year) => Number(year))
         .filter((year) => Number.isFinite(year))
-        .sort((a, b) => a - b),
-    [bookingsByYearData]
+        .sort((a, b) => a - b);
+    },
+    [bookingsByYearData, businessAnalytics?.available_years]
   );
   const firstYear = businessAnalytics?.date_coverage?.start_date
     ? new Date(businessAnalytics.date_coverage.start_date).getFullYear()
@@ -352,9 +368,14 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
       return bookingsByYearData;
     }
 
-    const yearlyPoint = bookingsByYearData.find(
-      (point) => Number(point.year) === selectedYear
-    );
+    if (businessAnalytics?.bookings_by_month?.length) {
+      return businessAnalytics.bookings_by_month.map((point) => ({
+        year: point.month,
+        bookings: point.bookings,
+      }));
+    }
+
+    const yearlyPoint = bookingsByYearData.find((point) => Number(point.year) === selectedYear);
     const annualTotal = yearlyPoint?.bookings ?? 0;
     const monthlyWeights = [0.075, 0.073, 0.078, 0.081, 0.086, 0.084, 0.09, 0.089, 0.083, 0.087, 0.087, 0.087];
 
@@ -371,7 +392,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
       allocated += bookings;
       return { year: month, bookings };
     });
-  }, [bookingsByYearData, isOverallView, selectedYear]);
+  }, [bookingsByYearData, businessAnalytics?.bookings_by_month, isOverallView, selectedYear]);
 
   const avgLeadDays = businessAnalytics?.avg_lead_time_days;
   const averageLeadTimeDisplay =
@@ -449,18 +470,25 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     });
   }, [businessAnalytics?.lead_time_distribution, isOverallView, selectedYear]);
   const topRoutesDisplay = useMemo(() => {
-    if (isOverallView) return fallbackTopRoutes;
+    const sourceTopRoutes =
+      businessAnalytics?.top_routes && businessAnalytics.top_routes.length > 0
+        ? businessAnalytics.top_routes.map((route) => ({
+            route: route.route,
+            bookings: route.count,
+          }))
+        : fallbackTopRoutes;
+    if (isOverallView) return sourceTopRoutes;
 
     const yearOffset = selectedYear ? (selectedYear % 6) - 2.5 : 0;
-    return fallbackTopRoutes.map((route, index) => {
-      const slope = (fallbackTopRoutes.length - index) * 0.015;
+    return sourceTopRoutes.map((route, index) => {
+      const slope = (sourceTopRoutes.length - index) * 0.015;
       const scale = 1 + yearOffset * 0.045 + slope;
       return {
         route: route.route,
         bookings: Math.max(Math.round(route.bookings * scale), 50),
       };
     });
-  }, [isOverallView, selectedYear]);
+  }, [businessAnalytics?.top_routes, isOverallView, selectedYear]);
   const netAmountsDisplay = useMemo<NetAmountPoint[]>(
     () =>
       bookingsOverTimeDisplayData.map((point) => ({
@@ -470,15 +498,30 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     [bookingsOverTimeDisplayData]
   );
   const dataQualityDisplay = useMemo<DataQualityItem[]>(() => {
-    const base = [
-      { label: "Duplicate Rows", count: 1982 },
-      { label: "Missing Route", count: 705 },
-      { label: "Missing Airline", count: 292 },
-      { label: "Missing Travel Date", count: 359 },
-      { label: "Invalid Travel Date", count: 523 },
-      { label: "Invalid Booking Date", count: 0 },
-      { label: "Negative Lead Records", count: 1752 },
-    ];
+    const base = businessAnalytics?.data_quality
+      ? [
+          { label: "Duplicate Rows", count: businessAnalytics.data_quality.duplicate_rows },
+          { label: "Missing Route", count: businessAnalytics.data_quality.missing_route },
+          { label: "Missing Airline", count: businessAnalytics.data_quality.missing_airline },
+          {
+            label: "Missing Travel Date",
+            count: businessAnalytics.data_quality.missing_travel_date,
+          },
+          {
+            label: "Invalid Travel Date",
+            count: businessAnalytics.data_quality.invalid_travel_date,
+          },
+          { label: "Missing Revenue", count: businessAnalytics.data_quality.missing_revenue },
+        ]
+      : [
+          { label: "Duplicate Rows", count: 1982 },
+          { label: "Missing Route", count: 705 },
+          { label: "Missing Airline", count: 292 },
+          { label: "Missing Travel Date", count: 359 },
+          { label: "Invalid Travel Date", count: 523 },
+          { label: "Invalid Booking Date", count: 0 },
+          { label: "Negative Lead Records", count: 1752 },
+        ];
 
     if (isOverallView) return base;
 
@@ -487,7 +530,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
       label: item.label,
       count: Math.max(Math.round(item.count * (1 + yearOffset * 0.08 + index * 0.01)), 0),
     }));
-  }, [isOverallView, selectedYear]);
+  }, [businessAnalytics?.data_quality, isOverallView, selectedYear]);
   const toggleKpiCard = (cardId: string) => {
     setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
   };
