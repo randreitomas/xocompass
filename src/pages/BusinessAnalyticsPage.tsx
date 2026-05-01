@@ -58,6 +58,7 @@ interface BusinessAnalyticsResponse {
   bookings_by_year: BookingsByYearPoint[];
   bookings_by_month: { month: string; bookings: number }[];
   revenue_by_month?: { month: string; revenue: number }[];
+  /** Pre-aggregated yearly totals; preferred source for Net Revenue “By year” in Overall view. */
   revenue_by_year?: { year: string; revenue: number }[];
   top_airlines?: AirlineCount[];
   lead_time_distribution?: LeadTimeBucket[];
@@ -203,8 +204,15 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
   const [models, setModels] = useState<BackendModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [selectedYearView, setSelectedYearView] = useState<string>("overall");
+  const [netRevenueGranularity, setNetRevenueGranularity] = useState<"month" | "year">("month");
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
   const [availableYears, setAvailableYears] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (selectedYearView !== "overall") {
+      setNetRevenueGranularity("month");
+    }
+  }, [selectedYearView]);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -400,22 +408,70 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
       })),
     [businessAnalytics?.top_routes]
   );
-  const netAmountsDisplay = useMemo<NetAmountPoint[]>(
-    () => {
-      if (!businessAnalytics) return [];
-      const monthlyRevenueRows = businessAnalytics.revenue_by_month ?? [];
-      const filteredRows =
-        isOverallView || selectedYear == null || !Number.isFinite(selectedYear)
-          ? monthlyRevenueRows
-          : monthlyRevenueRows.filter((point) => point.month.startsWith(`${selectedYear}-`));
+  const netAmountsMonthlyOverall = useMemo<NetAmountPoint[]>(() => {
+    if (!businessAnalytics) return [];
+    return (businessAnalytics.revenue_by_month ?? []).map((point) => ({
+      period: point.month,
+      amount: Number((point.revenue / 1000).toFixed(2)),
+    }));
+  }, [businessAnalytics]);
 
-      return filteredRows.map((point) => ({
-        period: point.month,
-        amount: Number((point.revenue / 1000).toFixed(2)),
-      }));
-    },
-    [businessAnalytics, isOverallView, selectedYear]
+  const hasBackendRevenueByYear = useMemo(
+    () =>
+      Boolean(
+        businessAnalytics?.revenue_by_year &&
+          Array.isArray(businessAnalytics.revenue_by_year) &&
+          businessAnalytics.revenue_by_year.length > 0
+      ),
+    [businessAnalytics?.revenue_by_year]
   );
+
+  /** Overall “By year”: always uses `revenue_by_year` when the API sends it; otherwise sums `revenue_by_month`. */
+  const netAmountsYearlyOverall = useMemo<NetAmountPoint[]>(() => {
+    if (!businessAnalytics) return [];
+
+    const apiYearRows = businessAnalytics.revenue_by_year;
+    if (Array.isArray(apiYearRows) && apiYearRows.length > 0) {
+      return [...apiYearRows]
+        .sort((a, b) => Number(a.year) - Number(b.year))
+        .map((row) => ({
+          period: String(row.year),
+          amount: Number((row.revenue / 1000).toFixed(2)),
+        }));
+    }
+
+    const totals = new Map<string, number>();
+    for (const point of businessAnalytics.revenue_by_month ?? []) {
+      const yearKey = point.month.slice(0, 4);
+      totals.set(yearKey, (totals.get(yearKey) ?? 0) + point.revenue);
+    }
+    return [...totals.entries()]
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([period, revenue]) => ({
+        period,
+        amount: Number((revenue / 1000).toFixed(2)),
+      }));
+  }, [businessAnalytics]);
+
+  const netAmountsDisplay = useMemo<NetAmountPoint[]>(() => {
+    if (!businessAnalytics) return [];
+    if (!isOverallView && selectedYear != null && Number.isFinite(selectedYear)) {
+      return netAmountsMonthlyOverall.filter((point) =>
+        point.period.startsWith(`${selectedYear}-`)
+      );
+    }
+    if (isOverallView && netRevenueGranularity === "year") {
+      return netAmountsYearlyOverall;
+    }
+    return netAmountsMonthlyOverall;
+  }, [
+    businessAnalytics,
+    isOverallView,
+    selectedYear,
+    netRevenueGranularity,
+    netAmountsMonthlyOverall,
+    netAmountsYearlyOverall,
+  ]);
   const dataQualityDisplay = useMemo<DataQualityItem[]>(() => {
     if (!businessAnalytics?.data_quality) return [];
     return [
@@ -601,6 +657,21 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
             ? "Total bookings by year from the linked dataset."
             : `Monthly bookings for ${selectedYear} from backend year-filtered analytics.`
         }
+        netRevenuePeriodLabel={
+          isOverallView ? (netRevenueGranularity === "year" ? "Year" : "Month") : "Month"
+        }
+        netRevenueChartDescription={
+          isOverallView
+            ? netRevenueGranularity === "year"
+              ? hasBackendRevenueByYear
+                ? "Net revenue in thousands by calendar year — values from API field revenue_by_year."
+                : "Net revenue in thousands by calendar year — summed from revenue_by_month (revenue_by_year not returned)."
+              : "Net revenue in thousands by month from revenue_by_month (overall dataset)."
+            : "Net revenue in thousands by month for the selected year."
+        }
+        showNetRevenueGranularityToggle={isOverallView}
+        netRevenueGranularity={netRevenueGranularity}
+        onNetRevenueGranularityChange={setNetRevenueGranularity}
       />
       </>
       )}

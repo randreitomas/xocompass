@@ -54,6 +54,14 @@ export interface BusinessAnalyticsTabProps {
   dataQualityItems?: DataQualityItem[] | null;
   bookingsOverTimeDescription?: string;
   bookingsPeriodLabel?: string;
+  /** X-axis / tooltip period label for the net revenue chart (e.g. Month vs Year). */
+  netRevenuePeriodLabel?: string;
+  /** Subtitle under “Net Revenue”; reflects monthly vs yearly when Overall. */
+  netRevenueChartDescription?: string;
+  /** When true (Overall KPI year view), show month/year toggle on the chart card. */
+  showNetRevenueGranularityToggle?: boolean;
+  netRevenueGranularity?: "month" | "year";
+  onNetRevenueGranularityChange?: (value: "month" | "year") => void;
 }
 
 const AIRLINE_LOGO_DOMAIN_BY_CODE: Record<string, string> = {
@@ -143,11 +151,17 @@ const ChartShell: React.FC<{
   title: string;
   description: string;
   heightClassName?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, description, heightClassName = "h-64", children }) => (
+}> = ({ title, description, heightClassName = "h-64", headerActions, children }) => (
   <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-    <p className="mt-1 text-sm text-slate-500">{description}</p>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
+    </div>
     <div className={heightClassName}>{children}</div>
   </div>
 );
@@ -502,6 +516,32 @@ const DataQualityPanel: React.FC<{ items: DataQualityItem[] }> = ({ items }) => 
   </div>
 );
 
+const NetRevenueGranularityToggle: React.FC<{
+  value: "month" | "year";
+  onChange: (value: "month" | "year") => void;
+}> = ({ value, onChange }) => (
+  <div
+    className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 shadow-sm"
+    role="group"
+    aria-label="Net revenue breakdown"
+  >
+    {(["month", "year"] as const).map((key) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onChange(key)}
+        className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+          value === key
+            ? "bg-white text-teal-800 shadow-sm ring-1 ring-slate-200/80"
+            : "text-slate-600 hover:text-slate-900"
+        }`}
+      >
+        {key === "month" ? "By month" : "By year"}
+      </button>
+    ))}
+  </div>
+);
+
 export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
   bookingsByYear,
   netAmounts,
@@ -511,6 +551,11 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
   dataQualityItems,
   bookingsOverTimeDescription = "Total bookings by year from the linked dataset.",
   bookingsPeriodLabel = "Year",
+  netRevenuePeriodLabel = "Month",
+  netRevenueChartDescription = "Net revenue in thousands by month.",
+  showNetRevenueGranularityToggle = false,
+  netRevenueGranularity = "month",
+  onNetRevenueGranularityChange,
 }) => {
   const hasAirlines = Boolean(topAirlines && topAirlines.length > 0);
   const hasLeadBuckets = Boolean(leadTimeDistribution && leadTimeDistribution.length > 0);
@@ -530,10 +575,18 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
         </ChartShell>
         <ChartShell
           title="Net Revenue"
-          description="Net revenue in thousands by month."
+          description={netRevenueChartDescription}
           heightClassName="h-72"
+          headerActions={
+            showNetRevenueGranularityToggle && onNetRevenueGranularityChange ? (
+              <NetRevenueGranularityToggle
+                value={netRevenueGranularity}
+                onChange={onNetRevenueGranularityChange}
+              />
+            ) : undefined
+          }
         >
-          <NetAmountsChart data={netAmounts} periodLabel="Month" />
+          <NetAmountsChart data={netAmounts} periodLabel={netRevenuePeriodLabel} />
         </ChartShell>
       </section>
 

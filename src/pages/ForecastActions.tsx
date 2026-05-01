@@ -273,8 +273,11 @@ const WeeklyDemandChart: React.FC<{
   const chartData = data.map((point, index) => {
     const zoneBase = point.upperCI ?? 0;
     const headroom = Math.max(Number((chartCeiling - zoneBase).toFixed(2)), 0);
+    /** One series for all forward predictions — avoids a gap between near vs beyond Recharts lines. */
+    const forecastForwardUnified = point.forecastNear ?? point.forecastBeyond ?? null;
     return {
       ...point,
+      forecastForwardUnified,
       zoneBase,
       historyTopBand: index <= historyEndIndex ? headroom : null,
       nearTopBand:
@@ -308,11 +311,21 @@ const WeeklyDemandChart: React.FC<{
           domain={[0, chartCeiling]}
         />
         <Tooltip
+          wrapperStyle={{ outline: "none", zIndex: 40 }}
+          cursor={{ stroke: "#64748b", strokeWidth: 1, strokeDasharray: "4 3" }}
           contentStyle={{
+            backgroundColor: "#ffffff",
+            border: "1px solid #cbd5e1",
             borderRadius: 10,
-            borderColor: "#E5E7EB",
-            fontSize: 12,
+            boxShadow:
+              "0 12px 28px -8px rgb(15 23 42 / 0.22), 0 4px 12px -4px rgb(15 23 42 / 0.14)",
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#0f172a",
+            padding: "10px 14px",
           }}
+          labelStyle={{ color: "#1e293b", fontWeight: 700, marginBottom: 6 }}
+          itemStyle={{ color: "#0f172a", paddingTop: 2, paddingBottom: 2 }}
           formatter={(value, name) => {
             if (
               name === "__zone-base" ||
@@ -449,18 +462,9 @@ const WeeklyDemandChart: React.FC<{
         ) : null}
         <Line
           type="monotone"
-          dataKey="forecastNear"
-          name="Forecasted (Next 2 Weeks)"
+          dataKey="forecastForwardUnified"
+          name="Forecasted (forward)"
           stroke="#14B8A6"
-          strokeWidth={2}
-          dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
-          connectNulls={false}
-        />
-        <Line
-          type="monotone"
-          dataKey="forecastBeyond"
-          name="Forecasted (Beyond 2 Weeks)"
-          stroke="#06B6D4"
           strokeWidth={2}
           dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
           connectNulls={false}
@@ -507,11 +511,7 @@ const WeeklyDemandChart: React.FC<{
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700">
               <span className="h-2 w-2 rounded-full bg-teal-500" />
-              Forecasted (Next 2 Weeks)
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-100 px-2 py-0.5 font-semibold text-cyan-700">
-              <span className="h-2 w-2 rounded-full bg-cyan-500" />
-              Forecasted (Beyond 2 Weeks)
+              Forecasted (forward, continuous)
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -661,12 +661,29 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
 
   const historicalHorizonWeeks = 4;
   const nearForecastHorizonWeeks = 2;
-  const forecastHorizonWeeks = 2;
 
-  const hasOutlook = Boolean(forecastOutlook);
-  const totalForecastedBookings = forecastOutlook?.forecasted_bookings_2w;
+  /** Forward-only rows from the forecast graph (actual null, predicted set). */
+  const forwardForecastMetrics = useMemo(() => {
+    const rows = forecastGraph?.data ?? [];
+    const forward = rows.filter((r) => r.actual == null && r.predicted != null);
+    const weekCount = forward.length;
+    const total = forward.reduce((sum, r) => sum + Number(r.predicted ?? 0), 0);
+    return { weekCount, total };
+  }, [forecastGraph?.data]);
+
+  const usesGraphForwardHorizon = forwardForecastMetrics.weekCount > 0;
+  const forecastHorizonWeeks = usesGraphForwardHorizon
+    ? forwardForecastMetrics.weekCount
+    : forecastOutlook != null
+      ? 2
+      : 0;
+
+  const totalForecastedBookings = usesGraphForwardHorizon
+    ? forwardForecastMetrics.total
+    : forecastOutlook?.forecasted_bookings_2w ?? null;
+
   const averageWeeklyForecast =
-    hasOutlook && totalForecastedBookings != null
+    forecastHorizonWeeks > 0 && totalForecastedBookings != null
       ? totalForecastedBookings / forecastHorizonWeeks
       : null;
 
@@ -819,8 +836,10 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
               Forecast & Actions
             </h1>
             <p className="mt-1 text-[14px] text-slate-600">
-              Projected booking demand, risk outlook, and recommended actions for
-              the next 2 weeks.{" "}
+              Projected booking demand, risk outlook, and recommended actions
+              {forecastHorizonWeeks > 0
+                ? ` across the ${forecastHorizonWeeks}-week forward horizon.`
+                : "."}{" "}
               <span className="font-medium text-slate-700">
                 Model {effectiveModelVersion} (ID {effectiveModelId})
               </span>
@@ -850,8 +869,12 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                 <StatCard
                   id="forecast-horizon"
                   label="Forecast Horizon"
-                  value={`${forecastHorizonWeeks} weeks`}
-                  helper="Default planning window for short-term demand."
+                  value={forecastHorizonWeeks > 0 ? `${forecastHorizonWeeks} weeks` : "—"}
+                  helper={
+                    usesGraphForwardHorizon
+                      ? `Forward weeks counted from the forecast graph (${forwardForecastMetrics.weekCount} predicted-only points).`
+                      : "Horizon falls back to the outlook API default (2 weeks) when the graph has no forward points."
+                  }
                   implication="Defines the operational planning window and staffing cadence for short-term execution."
                   icon={<CalendarRange className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["forecast-horizon"])}
@@ -861,11 +884,15 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   id="total-forecasted-bookings"
                   label="Total Forecasted Bookings"
                   value={
-                    hasOutlook && totalForecastedBookings != null
+                    totalForecastedBookings != null
                       ? totalForecastedBookings.toLocaleString("en-US")
                       : "—"
                   }
-                  helper="Projected bookings across the horizon."
+                  helper={
+                    usesGraphForwardHorizon
+                      ? `Sum of predicted bookings across all ${forwardForecastMetrics.weekCount} forward weeks in the graph.`
+                      : "Projected bookings across the outlook horizon (API aggregate)."
+                  }
                   implication="Represents expected booking load to guide seat allocation and revenue planning."
                   icon={<TrendingUp className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["total-forecasted-bookings"])}
@@ -877,7 +904,11 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   value={
                     averageWeeklyForecast != null ? averageWeeklyForecast.toFixed(1) : "—"
                   }
-                  helper="Mean projected bookings per forecast week."
+                  helper={
+                    forecastHorizonWeeks > 0 && totalForecastedBookings != null
+                      ? `Total forecast (${totalForecastedBookings.toLocaleString("en-US")}) divided by ${forecastHorizonWeeks} weeks.`
+                      : "Mean projected bookings per forecast week once horizon and total are available."
+                  }
                   implication="Provides a baseline weekly demand level for staffing and campaign pacing decisions."
                   icon={<Clock3 className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["average-weekly-forecast"])}
@@ -917,7 +948,13 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     Weekly Booking Demand Graph
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    4-week forecasted history, 2-week near forecast, and 10-week extended forecast with confidence band.
+                    {forwardForecastMetrics.weekCount > 0
+                      ? `${historicalHorizonWeeks}-week forecasted history, ${nearForecastHorizonWeeks}-week near forecast (higher confidence), and ${Math.max(
+                          0,
+                          forwardForecastMetrics.weekCount - nearForecastHorizonWeeks
+                        )} additional forward weeks with confidence band.`
+                      : `${historicalHorizonWeeks}-week forecasted history and forward forecast with confidence band.`}{" "}
+                    The teal forecast line runs continuously across all forward weeks; emerald vs amber background shading still separates higher vs lower confidence horizons.
                   </p>
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
