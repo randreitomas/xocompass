@@ -10,10 +10,8 @@ export const apiRoutes = {
     ),
   forecastKpis: (modelId: number) => apiUrl(`/api/forecast-outlook/${modelId}`),
   forecastGraph: (modelId: number) => apiUrl(`/api/forecast-graph/${modelId}`),
-  advancedMetrics: (modelId: number) => apiUrl(`/api/advanced-metrics?model_id=${modelId}`),
-  legacyForecastOutlook: (modelId: number) => apiUrl(`/api/forecast?model_id=${modelId}`),
-  legacyForecastGraph: (modelId: number) => apiUrl(`/api/forecast-graph?model_id=${modelId}`),
-  legacyAdvancedMetrics: (modelId: number) => apiUrl(`/api/advanced-metrics/${modelId}`),
+  strategicActions: (modelId: number) => apiUrl(`/api/strategic-actions/${modelId}`),
+  advancedMetrics: (modelId: number) => apiUrl(`/api/advanced-metrics/${modelId}`),
 };
 
 export const fetchJson = async <T>(url: string): Promise<T> => {

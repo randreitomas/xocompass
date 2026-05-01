@@ -9,11 +9,11 @@ import { Header } from "../components/layout/Header";
 
 interface BackendModel {
   id: number;
+  model_name: string;
   version: string;
   created_at: string;
-  aic_score: number;
+  aic_score: number | null;
   notes: string | null;
-  model_name?: string | null;
 }
 
 interface ModelsResponse {
@@ -137,7 +137,7 @@ const SaveCard: React.FC<SaveCardProps> = ({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const displayName =
-    model.model_name?.trim() ||
+    model.model_name.trim() ||
     model.notes?.trim() ||
     `Save ${index + 1}`;
 
@@ -178,7 +178,9 @@ const SaveCard: React.FC<SaveCardProps> = ({
           </p>
           <p className="mt-1 text-xs text-slate-500">
             <span className="font-medium text-slate-700">AIC</span>{" "}
-            {model.aic_score.toFixed(2)}
+            {model.aic_score != null && Number.isFinite(model.aic_score)
+              ? model.aic_score.toFixed(2)
+              : "—"}
             <span className="mx-1.5 text-slate-300">·</span>
             Model {model.version}
           </p>
@@ -313,7 +315,7 @@ export const SavesPage: React.FC = () => {
   };
 
   const getDisplayName = (model: BackendModel, index: number) =>
-    model.model_name?.trim() || model.notes?.trim() || `Save ${index + 1}`;
+    model.model_name.trim() || model.notes?.trim() || `Save ${index + 1}`;
 
   // ── Filtered + sorted models ──
   const processedModels = useMemo(() => {
@@ -329,7 +331,14 @@ export const SavesPage: React.FC = () => {
     if (sortKey === "newest") {
       list.sort((a, b) => b.id - a.id);
     } else if (sortKey === "lowest_aic") {
-      list.sort((a, b) => a.aic_score - b.aic_score);
+      list.sort((a, b) => {
+        const aAic = a.aic_score;
+        const bAic = b.aic_score;
+        if (aAic == null && bAic == null) return 0;
+        if (aAic == null) return 1;
+        if (bAic == null) return -1;
+        return aAic - bAic;
+      });
     } else {
       list.sort((a, b) =>
         getDisplayName(a, 0).localeCompare(getDisplayName(b, 0))
@@ -575,7 +584,7 @@ export const SavesPage: React.FC = () => {
 
       const defaultName = `Model ${latestModel.version} (ID ${latestModel.id})`;
       const getBackendSaveName = (m: BackendModel) =>
-        m.model_name?.trim() || m.notes?.trim() || null;
+        m.model_name.trim() || m.notes?.trim() || null;
       const chosenName = window
         .prompt("Name this save", defaultName)
         ?.trim();

@@ -41,6 +41,8 @@ export interface NetAmountPoint {
 export interface DataQualityItem {
   label: string;
   count: number;
+  /** Dataset volume / context — not an issue; omit severity styling. */
+  descriptiveOnly?: boolean;
 }
 
 export interface BusinessAnalyticsTabProps {
@@ -418,10 +420,10 @@ const NetAmountsChart: React.FC<{
               borderColor: "#E5E7EB",
               fontSize: 12,
             }}
-            formatter={(value: number) => [`₱${value.toFixed(2)}M`, "Net Amount"]}
+            formatter={(value: number) => [`₱${value.toFixed(2)}K`, "Net Revenue"]}
             labelFormatter={(label) => `${periodLabel}: ${label}`}
           />
-          <Bar dataKey="amount" name="Net Amount (₱M)" fill="#14B8A6" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="amount" name="Net Revenue (₱K)" fill="#14B8A6" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -432,6 +434,22 @@ const DataQualityPanel: React.FC<{ items: DataQualityItem[] }> = ({ items }) => 
   <div className="mt-4 h-full min-h-0 rounded-xl border border-slate-200 bg-slate-50 p-4">
     <div className="h-full min-h-0 space-y-2.5 overflow-y-auto pr-1">
       {items.slice(0, 5).map((item) => {
+        if (item.descriptiveOnly) {
+          return (
+            <div
+              key={item.label}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium text-slate-700">{item.label}</span>
+                <span className="text-sm font-semibold tabular-nums text-slate-700">
+                  {item.count.toLocaleString("en-US")}
+                </span>
+              </div>
+            </div>
+          );
+        }
+
         const severity =
           item.count >= 1000 ? "High" : item.count >= 300 ? "Medium" : item.count > 0 ? "Low" : "None";
         const severityClass =
@@ -477,7 +495,7 @@ const DataQualityPanel: React.FC<{ items: DataQualityItem[] }> = ({ items }) => 
       })}
       {items.length > 5 && (
         <p className="pt-1 text-xs font-medium text-slate-500">
-          Showing top 5 issues for compact view.
+          Showing first 5 rows for compact view.
         </p>
       )}
     </div>
@@ -511,11 +529,11 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
           <BookingsOverTimeChart data={bookingsByYear} periodLabel={bookingsPeriodLabel} />
         </ChartShell>
         <ChartShell
-          title="Net Amounts"
-          description={`Net revenue in millions by ${bookingsPeriodLabel.toLowerCase()}.`}
+          title="Net Revenue"
+          description="Net revenue in thousands by month."
           heightClassName="h-72"
         >
-          <NetAmountsChart data={netAmounts} periodLabel={bookingsPeriodLabel} />
+          <NetAmountsChart data={netAmounts} periodLabel="Month" />
         </ChartShell>
       </section>
 

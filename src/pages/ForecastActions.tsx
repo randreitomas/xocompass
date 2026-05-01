@@ -24,24 +24,19 @@ import { apiRoutes, fetchJson } from "../lib/apiRoutes";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
 import { SavesModal } from "../components/modals/SavesModal";
 
-interface ForecastPoint {
-  month: string;
-  actual: number;
-  predicted: number;
-  lowerCI: number;
-  upperCI: number;
+interface CriticalForecastWeek {
+  week_start: string;
+  week_end: string;
+  forecasted_volume: number;
+  risk_factor: string;
+  confidence_tier: string;
 }
 
 interface ForecastOutlookResponse {
   forecasted_bookings_2w: number;
   highest_forecast_week_date: string;
   highest_forecast_week_value: number;
-  critical_weeks: {
-    week_start: string;
-    forecasted_volume: number;
-    risk_factor: "HIGH" | "MEDIUM" | "LOW";
-    confidence_tier?: string;
-  }[];
+  critical_weeks: CriticalForecastWeek[];
 }
 
 interface ForecastGraphPoint {
@@ -55,6 +50,18 @@ interface ForecastGraphPoint {
 
 interface ForecastGraphResponse {
   data: ForecastGraphPoint[];
+}
+
+interface StrategicAction {
+  priority: string;
+  category: string;
+  action: string;
+  trigger: string;
+}
+
+interface StrategicActionsResponse {
+  actions: StrategicAction[];
+  generated_for_period: string;
 }
 
 interface MetricsRouteState {
@@ -76,6 +83,14 @@ interface ForecastActionsProps {
   isBackgroundPreview?: boolean;
 }
 
+/** Maps backend risk_flag strings (e.g. HIGH/MEDIUM/LOW) to UI sentence-case labels. */
+const normalizeRiskFactorLabel = (risk: string): "High" | "Medium" | "Low" => {
+  const upper = risk.trim().toUpperCase();
+  if (upper === "HIGH") return "High";
+  if (upper === "LOW") return "Low";
+  return "Medium";
+};
+
 interface StatCardProps {
   id: string;
   label: string;
@@ -87,11 +102,96 @@ interface StatCardProps {
   onToggle: (id: string) => void;
 }
 
+type CriticalWeekHorizonLabel =
+  | "Forecast History"
+  | "Forecasted 2 Weeks"
+  | "Forecasted Beyond 2 Weeks"
+  | "—";
+
 interface RiskWeekRow {
   week: string;
+  horizonStatus: CriticalWeekHorizonLabel;
   forecastedVolume: number;
   riskFactor: "High" | "Medium" | "Low";
 }
+
+const normalizeGraphDateKey = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+};
+
+const weekIntervalsOverlap = (
+  critStartIso: string,
+  critEndIso: string,
+  graphWeekStartIso: string
+): boolean => {
+  const cs = new Date(critStartIso).getTime();
+  const ce = new Date(critEndIso).getTime();
+  const rs = new Date(graphWeekStartIso).getTime();
+  if (Number.isNaN(cs) || Number.isNaN(ce) || Number.isNaN(rs)) return false;
+  const re = rs + 7 * 24 * 60 * 60 * 1000;
+  return cs < re && ce > rs;
+};
+
+/** Aligns a critical week with the same history / near / beyond slices as the demand chart. */
+const classifyCriticalWeekHorizon = (
+  week: CriticalForecastWeek,
+  graphRows: ForecastGraphPoint[],
+  historicalHorizonWeeks: number,
+  nearForecastHorizonWeeks: number
+): CriticalWeekHorizonLabel => {
+  if (graphRows.length === 0) return "—";
+
+  const backtestRows = graphRows.filter(
+    (row) => row.actual != null && row.predicted != null
+  );
+  const forwardRows = graphRows.filter(
+    (row) => row.actual == null && row.predicted != null
+  );
+  const histSlice = backtestRows.slice(-historicalHorizonWeeks);
+  const nearCap = Math.min(nearForecastHorizonWeeks, forwardRows.length);
+
+  const startKey = normalizeGraphDateKey(week.week_start);
+  const endKey = normalizeGraphDateKey(week.week_end);
+
+  for (const row of histSlice) {
+    const k = normalizeGraphDateKey(row.date);
+    if (k && (k === startKey || k === endKey)) return "Forecast History";
+  }
+  for (let i = 0; i < forwardRows.length; i++) {
+    const k = normalizeGraphDateKey(forwardRows[i].date);
+    if (k && (k === startKey || k === endKey)) {
+      return i < nearCap ? "Forecasted 2 Weeks" : "Forecasted Beyond 2 Weeks";
+    }
+  }
+
+  for (const row of histSlice) {
+    if (weekIntervalsOverlap(week.week_start, week.week_end, row.date)) {
+      return "Forecast History";
+    }
+  }
+  for (let i = 0; i < forwardRows.length; i++) {
+    if (weekIntervalsOverlap(week.week_start, week.week_end, forwardRows[i].date)) {
+      return i < nearCap ? "Forecasted 2 Weeks" : "Forecasted Beyond 2 Weeks";
+    }
+  }
+
+  return "—";
+};
+
+const horizonStatusBadgeClass = (status: CriticalWeekHorizonLabel) => {
+  switch (status) {
+    case "Forecast History":
+      return "bg-slate-100 text-slate-700";
+    case "Forecasted 2 Weeks":
+      return "bg-emerald-100 text-emerald-800";
+    case "Forecasted Beyond 2 Weeks":
+      return "bg-amber-100 text-amber-800";
+    default:
+      return "bg-slate-50 text-slate-500";
+  }
+};
 
 interface DemandSeriesPoint {
   week: string;
@@ -107,25 +207,12 @@ interface DemandSeriesPoint {
   beyondTopBand?: number | null;
 }
 
-const toWeekOrdinal = (dayOfMonth: number) => {
-  const weekIndex = Math.max(1, Math.min(5, Math.ceil(dayOfMonth / 7)));
-  if (weekIndex === 1) return "1st";
-  if (weekIndex === 2) return "2nd";
-  if (weekIndex === 3) return "3rd";
-  return `${weekIndex}th`;
-};
-
 const formatWeekLabel = (date: Date) => {
   const month = date.toLocaleDateString("en-US", { month: "short" });
-  return `${month} W${Math.max(1, Math.min(5, Math.ceil(date.getDate() / 7)))}`;
+  const year = date.getFullYear();
+  const weekOfMonth = Math.max(1, Math.min(5, Math.ceil(date.getDate() / 7)));
+  return `${month} W${weekOfMonth} ${year}`;
 };
-
-const fallbackForecastData: ForecastPoint[] = [
-  { month: "Jan", actual: 280, predicted: 295, lowerCI: 260, upperCI: 330 },
-  { month: "Feb", actual: 310, predicted: 320, lowerCI: 290, upperCI: 350 },
-  { month: "Mar", actual: 340, predicted: 355, lowerCI: 320, upperCI: 390 },
-  { month: "Apr", actual: 360, predicted: 380, lowerCI: 345, upperCI: 420 },
-];
 
 const StatCard: React.FC<StatCardProps> = ({
   id,
@@ -174,9 +261,12 @@ const WeeklyDemandChart: React.FC<{
   historyWeeks: number;
   nearForecastWeeks: number;
 }> = ({ data, historyWeeks, nearForecastWeeks }) => {
-  const historyEndIndex = Math.max(historyWeeks - 1, 0);
+  const historyEndIndex = historyWeeks > 0 ? Math.min(historyWeeks - 1, Math.max(data.length - 1, 0)) : -1;
   const nearForecastStartIndex = historyWeeks;
-  const nearForecastEndIndex = Math.max(historyWeeks + nearForecastWeeks - 1, historyWeeks);
+  const nearForecastEndIndex =
+    nearForecastWeeks > 0
+      ? Math.min(historyWeeks + nearForecastWeeks - 1, Math.max(data.length - 1, 0))
+      : Math.max(historyWeeks - 1, 0);
   const beyondForecastStartIndex = historyWeeks + nearForecastWeeks;
   const maxUpperCi = data.reduce((max, point) => Math.max(max, point.upperCI ?? 0), 0);
   const chartCeiling = Math.max(12, Number((maxUpperCi * 1.14).toFixed(1)));
@@ -198,14 +288,17 @@ const WeeklyDemandChart: React.FC<{
       <div className="relative flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 18, right: 12, left: 2, bottom: 28 }}>
+            <ComposedChart data={chartData} margin={{ top: 18, right: 12, left: 2, bottom: 52 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
         <XAxis
           dataKey="week"
           tickLine={false}
           axisLine={false}
-          tick={{ fontSize: 11, fill: "#6B7280" }}
+          tick={{ fontSize: 10, fill: "#6B7280" }}
           interval={0}
+          angle={-32}
+          textAnchor="end"
+          height={56}
         />
         <YAxis
           tickLine={false}
@@ -281,34 +374,40 @@ const WeeklyDemandChart: React.FC<{
           isAnimationActive={false}
           connectNulls={false}
         />
-        <ReferenceLine
-          x={data[historyEndIndex]?.week}
-          stroke="#475569"
-          strokeDasharray="6 4"
-          strokeWidth={2}
-        >
-          <Label
-            position="top"
-            value="Forecast start"
-            fill="#334155"
-            fontSize={11}
-            offset={10}
-          />
-        </ReferenceLine>
-        <ReferenceLine
-          x={data[nearForecastEndIndex]?.week}
-          stroke="#475569"
-          strokeDasharray="6 4"
-          strokeWidth={2}
-        >
-          <Label
-            position="top"
-            value="Weather API confidence"
-            fill="#334155"
-            fontSize={11}
-            offset={10}
-          />
-        </ReferenceLine>
+        {historyWeeks > 0 && data[historyEndIndex]?.week != null ? (
+          <ReferenceLine
+            x={data[historyEndIndex].week}
+            stroke="#475569"
+            strokeDasharray="6 4"
+            strokeWidth={2}
+          >
+            <Label
+              position="top"
+              value="Forecast start"
+              fill="#334155"
+              fontSize={11}
+              offset={10}
+            />
+          </ReferenceLine>
+        ) : null}
+        {nearForecastWeeks > 0 &&
+        data[nearForecastEndIndex]?.week != null &&
+        nearForecastEndIndex !== historyEndIndex ? (
+          <ReferenceLine
+            x={data[nearForecastEndIndex].week}
+            stroke="#475569"
+            strokeDasharray="6 4"
+            strokeWidth={2}
+          >
+            <Label
+              position="top"
+              value="Weather API confidence"
+              fill="#334155"
+              fontSize={11}
+              offset={10}
+            />
+          </ReferenceLine>
+        ) : null}
         <Area
           type="monotone"
           dataKey="upperCI"
@@ -334,18 +433,20 @@ const WeeklyDemandChart: React.FC<{
           dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
           connectNulls={false}
         />
-        <ReferenceLine
-          x={data[Math.max(Math.floor(historyWeeks / 2), 0)]?.week}
-          strokeOpacity={0}
-        >
-          <Label
-            position="insideTop"
-            value="Forecast History"
-            fill="#475569"
-            fontSize={11}
-            offset={6}
-          />
-        </ReferenceLine>
+        {historyWeeks > 0 ? (
+          <ReferenceLine
+            x={data[Math.max(Math.floor(historyWeeks / 2), 0)]?.week}
+            strokeOpacity={0}
+          >
+            <Label
+              position="insideTop"
+              value="Forecast History"
+              fill="#475569"
+              fontSize={11}
+              offset={6}
+            />
+          </ReferenceLine>
+        ) : null}
         <Line
           type="monotone"
           dataKey="forecastNear"
@@ -466,6 +567,8 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   const [forecastOutlook, setForecastOutlook] =
     useState<ForecastOutlookResponse | null>(null);
   const [forecastGraph, setForecastGraph] = useState<ForecastGraphResponse | null>(null);
+  const [strategicActions, setStrategicActions] =
+    useState<StrategicActionsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [models, setModels] = useState<BackendModel[]>([]);
@@ -507,6 +610,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     if (shouldShowColdStart) {
       setForecastOutlook(null);
       setForecastGraph(null);
+      setStrategicActions(null);
       setIsLoading(false);
       setLoadError("");
       return;
@@ -517,33 +621,27 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         setIsLoading(true);
         setLoadError("");
 
-        let outlookData: ForecastOutlookResponse;
-        try {
-          outlookData = await fetchJson<ForecastOutlookResponse>(
-            apiRoutes.forecastKpis(effectiveModelId)
-          );
-        } catch {
-          outlookData = await fetchJson<ForecastOutlookResponse>(
-            apiRoutes.legacyForecastOutlook(effectiveModelId)
-          );
-        }
-
-        let graphData: ForecastGraphResponse;
-        try {
-          graphData = await fetchJson<ForecastGraphResponse>(
-            apiRoutes.forecastGraph(effectiveModelId)
-          );
-        } catch {
-          graphData = await fetchJson<ForecastGraphResponse>(
-            apiRoutes.legacyForecastGraph(effectiveModelId)
-          );
-        }
+        const [outlookData, graphData] = await Promise.all([
+          fetchJson<ForecastOutlookResponse>(apiRoutes.forecastKpis(effectiveModelId)),
+          fetchJson<ForecastGraphResponse>(apiRoutes.forecastGraph(effectiveModelId)),
+        ]);
 
         setForecastOutlook(outlookData);
         setForecastGraph(graphData);
+
+        try {
+          const strategicData = await fetchJson<StrategicActionsResponse>(
+            apiRoutes.strategicActions(effectiveModelId)
+          );
+          setStrategicActions(strategicData);
+        } catch (strategicError) {
+          console.error("Unable to load strategic actions:", strategicError);
+          setStrategicActions({ actions: [], generated_for_period: "" });
+        }
       } catch (error) {
         console.error("Unable to load forecast outlook:", error);
         setLoadError("Unable to load forecast outlook.");
+        setStrategicActions(null);
       } finally {
         setIsLoading(false);
       }
@@ -561,180 +659,114 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     }
   }, [effectiveModelId, effectiveModelVersion]);
 
-  const forecastData = forecastOutlook?.critical_weeks?.length
-    ? forecastOutlook.critical_weeks.map((week) => ({
-        month: new Date(week.week_start).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        }),
-        actual: Math.max(week.forecasted_volume - 2, 0),
-        predicted: week.forecasted_volume,
-        lowerCI: Math.max(week.forecasted_volume - 3, 0),
-        upperCI: week.forecasted_volume + 3,
-      }))
-    : fallbackForecastData;
-
-  const highestForecastWeek = useMemo(() => {
-    if (forecastData.length === 0) {
-      return { week: "Week 1", predicted: 0 };
-    }
-
-    return forecastData.reduce(
-      (max, item, index) => {
-        if (item.predicted > max.predicted) {
-          return {
-            week: `Week ${index + 1} (${item.month})`,
-            predicted: item.predicted,
-          };
-        }
-        return max;
-      },
-      {
-        week: `Week 1 (${forecastData[0].month})`,
-        predicted: forecastData[0].predicted,
-      }
-    );
-  }, [forecastData]);
   const historicalHorizonWeeks = 4;
   const nearForecastHorizonWeeks = 2;
-  const beyondForecastHorizonWeeks = 10;
   const forecastHorizonWeeks = 2;
-  const totalForecastedBookings = forecastOutlook?.forecasted_bookings_2w ?? 2847;
-  const averageWeeklyForecast = totalForecastedBookings / forecastHorizonWeeks;
 
-  const riskWeeks: RiskWeekRow[] = forecastOutlook?.critical_weeks?.length
-    ? forecastOutlook.critical_weeks.map((week, index) => ({
-        week: `Week ${index + 1} (${new Date(week.week_start).toLocaleDateString(
-          "en-US",
-          { month: "short", day: "numeric" }
-        )})`,
-        forecastedVolume: week.forecasted_volume,
-        riskFactor:
-          week.risk_factor === "HIGH"
-            ? "High"
-            : week.risk_factor === "LOW"
-              ? "Low"
-              : "Medium",
-      }))
-    : [
-        { week: "Week 1", forecastedVolume: 1820, riskFactor: "Medium" },
-        { week: "Week 2", forecastedVolume: 1985, riskFactor: "High" },
-        { week: "Week 3", forecastedVolume: 1735, riskFactor: "Low" },
-      ];
-  const demandSeries = useMemo<DemandSeriesPoint[]>(() => {
+  const hasOutlook = Boolean(forecastOutlook);
+  const totalForecastedBookings = forecastOutlook?.forecasted_bookings_2w;
+  const averageWeeklyForecast =
+    hasOutlook && totalForecastedBookings != null
+      ? totalForecastedBookings / forecastHorizonWeeks
+      : null;
+
+  const riskWeeks: RiskWeekRow[] = useMemo(() => {
+    const critical = forecastOutlook?.critical_weeks ?? [];
     const graphRows = forecastGraph?.data ?? [];
+    return critical.map((week) => ({
+      week: `${new Date(week.week_start).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })} – ${new Date(week.week_end).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}`,
+      horizonStatus: classifyCriticalWeekHorizon(
+        week,
+        graphRows,
+        historicalHorizonWeeks,
+        nearForecastHorizonWeeks
+      ),
+      forecastedVolume: week.forecasted_volume,
+      riskFactor: normalizeRiskFactorLabel(week.risk_factor),
+    }));
+  }, [
+    forecastOutlook?.critical_weeks,
+    forecastGraph?.data,
+    historicalHorizonWeeks,
+    nearForecastHorizonWeeks,
+  ]);
+
+  const demandSeriesBundle = useMemo(() => {
+    const graphRows = forecastGraph?.data ?? [];
+    if (graphRows.length === 0) {
+      return {
+        series: [] as DemandSeriesPoint[],
+        historyPointCount: 0,
+        nearForecastPointCount: 0,
+      };
+    }
+
     const backtestRows = graphRows.filter(
       (row) => row.actual != null && row.predicted != null
     );
     const forwardRows = graphRows.filter(
       (row) => row.actual == null && row.predicted != null
     );
-    const outlookWeeks = forecastOutlook?.critical_weeks ?? [];
-    const historicalSeed = backtestRows.length
-      ? backtestRows.slice(-historicalHorizonWeeks).map((row) => row.predicted as number)
-      : outlookWeeks.slice(0, historicalHorizonWeeks).map((week, index) => {
-          const damping = 1 - Math.min(0.08, (historicalHorizonWeeks - index) * 0.015);
-          return Number((week.forecasted_volume * damping).toFixed(1));
-        });
-    const firstForecastDate =
-      forwardRows[0]?.date != null
-        ? new Date(forwardRows[0].date)
-        : forecastOutlook?.critical_weeks?.[0]?.week_start != null
-        ? new Date(forecastOutlook.critical_weeks[0].week_start)
-        : new Date();
-    const historicalRows = historicalSeed.map((value, index) => {
-      const historicalDate = new Date(firstForecastDate);
-      historicalDate.setDate(firstForecastDate.getDate() - (historicalSeed.length - index) * 7);
-      const ciWidth = Number((Math.max(1.2, value * 0.1)).toFixed(1));
+    const histSlice = backtestRows.slice(-historicalHorizonWeeks);
+    const nearCap = Math.min(nearForecastHorizonWeeks, forwardRows.length);
+
+    const historicalRows: DemandSeriesPoint[] = histSlice.map((row, index) => {
+      const historicalDate = new Date(row.date);
+      const predictedValue = row.predicted as number;
+      const lowerCI = row.lower_bound ?? predictedValue;
+      const upperCI = row.upper_bound ?? predictedValue;
       return {
         week: formatWeekLabel(historicalDate),
-        forecastHistory: value,
+        forecastHistory: predictedValue,
         forecastNear: null,
         forecastBeyond: null,
-        lowerCI: Math.max(Number((value - ciWidth).toFixed(1)), 0),
-        upperCI: Number((value + ciWidth).toFixed(1)),
-        transition: index === historicalSeed.length - 1 ? value : null,
+        lowerCI,
+        upperCI,
+        transition: index === histSlice.length - 1 ? predictedValue : null,
       };
     });
-    const totalForwardWeeks = nearForecastHorizonWeeks + beyondForecastHorizonWeeks;
-    const nearValues =
-      forwardRows.length > 0
-        ? forwardRows
-            .slice(0, nearForecastHorizonWeeks)
-            .map((item) => item.predicted as number)
-        : outlookWeeks.slice(0, nearForecastHorizonWeeks).map((week) => week.forecasted_volume);
-    const beyondValuesFromApi =
-      forwardRows.length > nearForecastHorizonWeeks
-        ? forwardRows
-            .slice(nearForecastHorizonWeeks, nearForecastHorizonWeeks + beyondForecastHorizonWeeks)
-            .map((item) => item.predicted as number)
-        : outlookWeeks
-            .slice(nearForecastHorizonWeeks, nearForecastHorizonWeeks + beyondForecastHorizonWeeks)
-            .map((week) => week.forecasted_volume);
-    const trendStart =
-      beyondValuesFromApi[0] ??
-      nearValues[nearValues.length - 1] ??
-      historicalSeed[historicalSeed.length - 1] ??
-      0;
-    const beyondValues =
-      beyondValuesFromApi.length >= beyondForecastHorizonWeeks
-        ? beyondValuesFromApi
-        : [
-            ...beyondValuesFromApi,
-            ...Array.from(
-              { length: Math.max(beyondForecastHorizonWeeks - beyondValuesFromApi.length, 0) },
-              (_, index) => Number((trendStart * (1 + (index + 1) * 0.01)).toFixed(1))
-            ),
-          ];
-    const forwardValues = [...nearValues, ...beyondValues].slice(
-      0,
-      nearForecastHorizonWeeks + beyondForecastHorizonWeeks
-    );
-    const forecastRows = forwardValues.slice(0, totalForwardWeeks).map((predictedValue, index) => {
-      const graphRow = forwardRows[index];
-      const forecastDate =
-        graphRow?.date != null
-          ? new Date(graphRow.date)
-          : forecastOutlook?.critical_weeks?.[index]?.week_start != null
-          ? new Date(forecastOutlook.critical_weeks[index].week_start)
-          : (() => {
-              const derived = new Date(firstForecastDate);
-              derived.setDate(firstForecastDate.getDate() + index * 7);
-              return derived;
-            })();
-      const isBeyondWindow = index >= nearForecastHorizonWeeks;
-      const ciRatio = isBeyondWindow ? 0.18 : 0.1;
-      const ciFloor = isBeyondWindow ? 1.8 : 1.2;
-      const inferredCiWidth = Number((Math.max(ciFloor, predictedValue * ciRatio)).toFixed(1));
-      const lowerCI =
-        graphRow?.lower_bound != null
-          ? graphRow.lower_bound
-          : Math.max(Number((predictedValue - inferredCiWidth).toFixed(1)), 0);
-      const upperCI =
-        graphRow?.upper_bound != null
-          ? graphRow.upper_bound
-          : Number((predictedValue + inferredCiWidth).toFixed(1));
+
+    const forecastRows: DemandSeriesPoint[] = forwardRows.map((graphRow, index) => {
+      const forecastDate = new Date(graphRow.date);
+      const predictedValue = graphRow.predicted as number;
+      const lowerCI = graphRow.lower_bound ?? predictedValue;
+      const upperCI = graphRow.upper_bound ?? predictedValue;
+      const isNear = index < nearCap;
       return {
         week: formatWeekLabel(forecastDate),
         forecastHistory: null,
-        // Keep one-point overlap so the near->beyond boundary is visually continuous.
-        forecastNear: index <= nearForecastHorizonWeeks ? predictedValue : null,
-        forecastBeyond: index >= nearForecastHorizonWeeks ? predictedValue : null,
+        forecastNear: isNear ? predictedValue : null,
+        forecastBeyond: !isNear ? predictedValue : null,
         lowerCI,
         upperCI,
         transition: index === 0 ? predictedValue : null,
       };
     });
-    return [...historicalRows, ...forecastRows];
-  }, [
-    beyondForecastHorizonWeeks,
-    forecastData,
-    forecastGraph?.data,
-    forecastOutlook?.critical_weeks,
-    historicalHorizonWeeks,
-    nearForecastHorizonWeeks,
-  ]);
+
+    return {
+      series: [...historicalRows, ...forecastRows],
+      historyPointCount: histSlice.length,
+      nearForecastPointCount: nearCap,
+    };
+  }, [forecastGraph?.data, historicalHorizonWeeks, nearForecastHorizonWeeks]);
+
+  const demandSeries = demandSeriesBundle.series;
+
   const actionableInsights = useMemo(() => {
+    const backendActions = strategicActions?.actions ?? [];
+    if (backendActions.length > 0) {
+      const lines = backendActions.map((item) => item.action.trim()).filter(Boolean);
+      return [...new Set(lines)];
+    }
+
     const insights: string[] = [];
     const highRiskCount = riskWeeks.filter((week) => week.riskFactor === "High").length;
     const mediumRiskCount = riskWeeks.filter((week) => week.riskFactor === "Medium").length;
@@ -748,22 +780,28 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         `Launch targeted promos and staffing adjustments for ${mediumRiskCount} medium-risk week${mediumRiskCount > 1 ? "s" : ""}.`
       );
     }
-    const forecastValues = forecastData.map((item) => item.predicted);
-    if (forecastValues.length >= 2 && forecastValues[forecastValues.length - 1] > forecastValues[0]) {
-      insights.push("Demand trend is rising across the horizon; increase seat allocation and support coverage.");
-    } else if (forecastValues.length >= 2) {
-      insights.push("Demand trend is flattening; prioritize margin optimization and route-level efficiency.");
+    const criticalVolumes =
+      forecastOutlook?.critical_weeks?.map((week) => week.forecasted_volume) ?? [];
+    if (criticalVolumes.length >= 2) {
+      const first = criticalVolumes[0];
+      const last = criticalVolumes[criticalVolumes.length - 1];
+      if (last > first) {
+        insights.push(
+          "Demand trend is rising across critical forecast weeks; increase seat allocation and support coverage."
+        );
+      } else if (last < first) {
+        insights.push(
+          "Demand trend is softening across critical forecast weeks; prioritize margin optimization and route-level efficiency."
+        );
+      }
     }
     if (insights.length === 0) {
-      insights.push("Current forecast is stable; maintain baseline operations and monitor weekly variance.");
+      insights.push(
+        "No strategic actions were returned for this forecast snapshot."
+      );
     }
-    return [
-      ...insights,
-      "Coordinate with partner agencies two weeks ahead to secure surge booking support.",
-      "Prepare standby marketing creatives for rapid campaign activation during demand spikes.",
-      "Set a weekly forecast variance review cadence with operations and commercial teams.",
-    ];
-  }, [forecastData, riskWeeks]);
+    return insights;
+  }, [forecastOutlook?.critical_weeks, riskWeeks, strategicActions?.actions]);
   const toggleKpiCard = (cardId: string) => {
     setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
   };
@@ -799,7 +837,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
 
         {loadError && (
           <p className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[14px] text-red-700 shadow-sm">
-            {loadError} Showing fallback data where needed.
+            {loadError}
           </p>
         )}
 
@@ -822,7 +860,11 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                 <StatCard
                   id="total-forecasted-bookings"
                   label="Total Forecasted Bookings"
-                  value={totalForecastedBookings.toLocaleString("en-US")}
+                  value={
+                    hasOutlook && totalForecastedBookings != null
+                      ? totalForecastedBookings.toLocaleString("en-US")
+                      : "—"
+                  }
                   helper="Projected bookings across the horizon."
                   implication="Represents expected booking load to guide seat allocation and revenue planning."
                   icon={<TrendingUp className="h-4 w-4" />}
@@ -832,7 +874,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                 <StatCard
                   id="average-weekly-forecast"
                   label="Average Weekly Forecast"
-                  value={averageWeeklyForecast.toFixed(1)}
+                  value={
+                    averageWeeklyForecast != null ? averageWeeklyForecast.toFixed(1) : "—"
+                  }
                   helper="Mean projected bookings per forecast week."
                   implication="Provides a baseline weekly demand level for staffing and campaign pacing decisions."
                   icon={<Clock3 className="h-4 w-4" />}
@@ -849,13 +893,17 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                         ).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
+                          year: "numeric",
                         })
-                      : highestForecastWeek.week
+                      : "—"
                   }
-                  helper={`${(
-                    forecastOutlook?.highest_forecast_week_value ??
-                    highestForecastWeek.predicted
-                  ).toLocaleString("en-US")} projected bookings`}
+                  helper={
+                    forecastOutlook
+                      ? `${forecastOutlook.highest_forecast_week_value.toLocaleString(
+                          "en-US"
+                        )} projected bookings`
+                      : "Peak forecast week not returned for this model."
+                  }
                   implication="Highlights the most capacity-sensitive week where pre-emptive actions have the highest impact."
                   icon={<Zap className="h-4 w-4" />}
                   isFlipped={Boolean(flippedKpis["peak-forecast-week"])}
@@ -885,11 +933,17 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                       <p className="mt-1">Extended using historical weather proxy patterns; uncertainty band is intentionally wider.</p>
                     </div>
                   </div>
-                  <WeeklyDemandChart
-                    data={demandSeries}
-                    historyWeeks={historicalHorizonWeeks}
-                    nearForecastWeeks={nearForecastHorizonWeeks}
-                  />
+                  {demandSeries.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                      No forecast graph points returned from the API for this model.
+                    </p>
+                  ) : (
+                    <WeeklyDemandChart
+                      data={demandSeries}
+                      historyWeeks={demandSeriesBundle.historyPointCount}
+                      nearForecastWeeks={demandSeriesBundle.nearForecastPointCount}
+                    />
+                  )}
                 </div>
               </section>
 
@@ -899,7 +953,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     Critical Forecast Weeks
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Weeks with elevated demand risk in the near-term forecast horizon.
+                    Weeks with elevated demand risk in the near-term forecast horizon. Status matches
+                    the weekly demand chart: forecast history (backtest window), next two weeks, or
+                    beyond two weeks.
                   </p>
                   <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -907,6 +963,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                         <tr>
                           <th className="px-4 py-2 text-left font-semibold text-slate-600">
                             Week
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-slate-600">
+                            Status
                           </th>
                           <th className="px-4 py-2 text-left font-semibold text-slate-600">
                             Forecasted Volume
@@ -917,9 +976,28 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {riskWeeks.map((row) => (
-                          <tr key={row.week}>
+                        {riskWeeks.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-6 text-center text-slate-500"
+                            >
+                              No critical forecast weeks returned from the API.
+                            </td>
+                          </tr>
+                        ) : null}
+                        {riskWeeks.map((row, rowIndex) => (
+                          <tr key={`${row.week}-${rowIndex}`}>
                             <td className="px-4 py-2 text-slate-700">{row.week}</td>
+                            <td className="px-4 py-2">
+                              <span
+                                className={`inline-block max-w-[14rem] rounded-full px-2 py-1 text-xs font-semibold ${horizonStatusBadgeClass(
+                                  row.horizonStatus
+                                )}`}
+                              >
+                                {row.horizonStatus}
+                              </span>
+                            </td>
                             <td className="px-4 py-2 text-slate-700">
                               {row.forecastedVolume.toLocaleString("en-US")}
                             </td>

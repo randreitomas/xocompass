@@ -49,9 +49,16 @@ interface ModelsResponse {
   available_models: BackendModel[];
 }
 
+interface CorrelationPoint {
+  lag: number;
+  value: number;
+}
+
 interface AdvancedMetricsResponse {
   model_params: {
+    /** Non-seasonal (p, d, q). */
     order: number[];
+    /** Seasonal orders as returned by the API — often 3 terms (P,D,Q) or 4 with explicit period s. */
     seasonal_order: number[];
     exogenous_features: string[];
   };
@@ -61,17 +68,22 @@ interface AdvancedMetricsResponse {
     wmape: number;
   };
   statistical_tests: {
+    adf_stat: number;
+    adf_pvalue: number;
+    adf_conclusion: string;
+    ljungbox_stat: number;
     ljungbox_pvalue: number;
-    jarque_bera?: number;
-    jarquebera_stat?: number;
-    jarquebera_pvalue?: number;
-    adf_pvalue?: number;
-    adf_stat?: number;
+    ljungbox_conclusion: string;
+    jarquebera_stat: number;
+    jarquebera_pvalue: number;
+    jarquebera_conclusion: string;
   };
   charts: {
     residuals: { fitted: number; residual: number }[];
+    acf: CorrelationPoint[];
+    pacf: CorrelationPoint[];
     correlation_heatmap: { variable: string; correlation: number }[];
-    validation_graph?: {
+    validation_graph: {
       date_label: string;
       actual: number;
       forecasted: number;
@@ -80,6 +92,16 @@ interface AdvancedMetricsResponse {
     }[];
   };
 }
+
+const seasonalOrderHeading = (coefficientCount: number) => {
+  if (coefficientCount === 4) return "Seasonal Order (P,D,Q,s)";
+  if (coefficientCount === 3) return "Seasonal Order (P,D,Q)";
+  return "Seasonal Order";
+};
+
+/** Visible weeks per frame when the validation series is long; slider pans the window. */
+const VALIDATION_CHART_WINDOW = 22;
+
 const MetricCard: React.FC<MetricCardProps> = ({
   id,
   label,
@@ -123,7 +145,6 @@ const MetricCard: React.FC<MetricCardProps> = ({
 );
 
 const ValidationGraph: React.FC<{
-  residuals?: { fitted: number; residual: number }[];
   validationGraph?: {
     date_label: string;
     actual: number;
@@ -131,63 +152,102 @@ const ValidationGraph: React.FC<{
     lower_ci: number;
     upper_ci: number;
   }[];
-}> = ({
-  residuals,
-  validationGraph,
-}) => {
+}> = ({ validationGraph }) => {
   const lineData = useMemo(() => {
-    if (validationGraph && validationGraph.length > 0) {
-      return validationGraph.map((point) => ({
-        weekLabel: point.date_label,
-        actual: point.actual,
-        forecasted: point.forecasted,
-        upperCI: point.upper_ci,
-        lowerCI: point.lower_ci,
-      }));
-    }
-    // Fixed placeholder sequence aligned with ForecastActions historical simulation.
-    const fallbackActual = [8, 9, 10, 10, 9, 11, 11, 10, 9, 10, 9, 8, 9, 11, 12, 12];
-    const anchorDate = new Date("2025-12-22T00:00:00");
-    const toWeekLabel = (date: Date) => {
-      const month = date.toLocaleDateString("en-US", { month: "short" });
-      const weekNumber = Math.max(1, Math.min(5, Math.ceil(date.getDate() / 7)));
-      return `${month} W${weekNumber}`;
-    };
-    const sourceActual = fallbackActual;
-    const startDate = new Date(anchorDate);
-    startDate.setDate(anchorDate.getDate() - (sourceActual.length - 1) * 7);
-    const rows = sourceActual.map((actual, index) => {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + index * 7);
-      const forecasted = Math.max(
-        Number((actual * 0.92 + Math.sin(index * 0.6) * 0.9).toFixed(1)),
-        0
-      );
-      const ciWidth = Number((Math.max(1.5, forecasted * 0.12)).toFixed(1));
-      return {
-      weekLabel: toWeekLabel(date),
-      actual,
-      forecasted,
-      upperCI: Number((forecasted + ciWidth).toFixed(1)),
-      lowerCI: Number(Math.max(0, forecasted - ciWidth).toFixed(1)),
-      };
-    });
-    return rows;
-  }, [residuals, validationGraph]);
+    if (!validationGraph?.length) return [];
+    return validationGraph.map((point) => ({
+      weekLabel: point.date_label,
+      actual: point.actual,
+      forecasted: point.forecasted,
+      upperCI: point.upper_ci,
+      lowerCI: point.lower_ci,
+    }));
+  }, [validationGraph]);
+
+  const [windowStart, setWindowStart] = useState(0);
+
+  useEffect(() => {
+    setWindowStart(0);
+  }, [validationGraph]);
+
+  const windowLen = Math.min(VALIDATION_CHART_WINDOW, lineData.length);
+  const maxStart = Math.max(0, lineData.length - windowLen);
+  const effectiveStart = Math.min(windowStart, maxStart);
+
+  const slicedData = useMemo(
+    () => lineData.slice(effectiveStart, effectiveStart + windowLen),
+    [lineData, effectiveStart, windowLen]
+  );
+
+  if (lineData.length === 0) {
+    return (
+      <div className="mt-4 flex min-h-[21rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+        No validation graph points returned from the API for this model.
+      </div>
+    );
+  }
+
+  const showSlider = maxStart > 0;
+  const tiltLabels = slicedData.length > 11;
+  const chartBottom = tiltLabels ? 44 : 10;
 
   return (
-    <div className="mt-4 h-[21rem] rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1">
+    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-col gap-3">
+        {showSlider ? (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-slate-800">Browse timeline</span>
+              <span className="tabular-nums text-slate-600">
+                <span className="font-medium text-slate-800">{slicedData[0]?.weekLabel}</span>
+                <span className="mx-1.5 text-slate-400">→</span>
+                <span className="font-medium text-slate-800">
+                  {slicedData[slicedData.length - 1]?.weekLabel}
+                </span>
+                <span className="ml-2 text-slate-400">
+                  ({effectiveStart + 1}–{effectiveStart + slicedData.length} of {lineData.length})
+                </span>
+              </span>
+            </div>
+            <label className="mt-2 block">
+              <span className="sr-only">Pan validation chart window</span>
+              <input
+                type="range"
+                min={0}
+                max={maxStart}
+                step={1}
+                value={effectiveStart}
+                onChange={(e) => setWindowStart(Number(e.target.value))}
+                className="mt-1 h-2 w-full cursor-pointer rounded-full bg-slate-200 accent-teal-600"
+              />
+            </label>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Drag to slide across weeks; each frame shows up to {VALIDATION_CHART_WINDOW} points.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Showing all {lineData.length} validation week
+            {lineData.length === 1 ? "" : "s"}.
+          </p>
+        )}
+
+        <div className="h-[17rem] min-h-[14rem] w-full shrink-0">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={lineData} margin={{ top: 10, right: 16, left: 2, bottom: 0 }}>
+            <ComposedChart
+              data={slicedData}
+              margin={{ top: 10, right: 16, left: 2, bottom: chartBottom }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
               <XAxis
                 dataKey="weekLabel"
                 tickLine={false}
                 axisLine={false}
                 tick={{ fontSize: 11, fill: "#6B7280" }}
-                interval={1}
+                interval={0}
+                angle={tiltLabels ? -36 : 0}
+                textAnchor={tiltLabels ? "end" : "middle"}
+                height={tiltLabels ? 52 : 28}
               />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#6B7280" }} />
               <Tooltip
@@ -203,7 +263,8 @@ const ValidationGraph: React.FC<{
                           : name === "lowerCI"
                             ? "Lower CI"
                             : name;
-                  return [value.toFixed(1), label];
+                  const n = typeof value === "number" ? value : Number(value);
+                  return [Number.isFinite(n) ? n.toFixed(1) : "—", label];
                 }}
                 labelFormatter={(label) => `Week: ${label}`}
               />
@@ -260,7 +321,8 @@ const ValidationGraph: React.FC<{
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <div className="mt-2 shrink-0 pt-1">
+
+        <div className="shrink-0 pt-1">
           <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-600">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
               <span className="h-2 w-2 rounded-full bg-slate-900" />
@@ -285,12 +347,40 @@ const ValidationGraph: React.FC<{
   );
 };
 
-const StemCheckChart: React.FC<{ title: string; subtitle: string; values: number[] }> = ({
-  title,
-  subtitle,
-  values,
-}) => {
-  const chartData = values.map((value, index) => ({ lag: index + 1, value }));
+const StemCheckChart: React.FC<{
+  title: string;
+  subtitle: string;
+  /** Full series from API (includes lag 0 = 1); stem plot uses lag ≥ 1 only. */
+  points: CorrelationPoint[];
+}> = ({ title, subtitle, points }) => {
+  const chartData = useMemo(() => {
+    const sorted = [...points].sort((a, b) => a.lag - b.lag);
+    return sorted.filter((p) => p.lag > 0).map((p) => ({ lag: p.lag, value: p.value }));
+  }, [points]);
+
+  if (points.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        <p className="mt-6 text-center text-sm text-slate-500">
+          No {title.includes("PACF") ? "PACF" : "ACF"} series returned from the API.
+        </p>
+      </div>
+    );
+  }
+
+  if (chartData.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        <p className="mt-6 text-center text-sm text-slate-500">
+          ACF/PACF payload only contained lag 0; no stems to plot.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
@@ -315,26 +405,31 @@ const StemCheckChart: React.FC<{ title: string; subtitle: string; values: number
 const PlaceholderChart: React.FC<{ residuals?: { fitted: number; residual: number }[] }> = ({
   residuals,
 }) => {
-  const histogramBars =
-    residuals && residuals.length > 0
-      ? (() => {
-          const values = residuals.map((point) => point.residual);
-          const min = Math.min(...values);
-          const max = Math.max(...values);
-          const bucketCount = 9;
-          const range = Math.max(max - min, 1);
-          const buckets = Array.from({ length: bucketCount }, () => 0);
-          values.forEach((value) => {
-            const idx = Math.min(
-              Math.floor(((value - min) / range) * bucketCount),
-              bucketCount - 1
-            );
-            buckets[idx] += 1;
-          });
-          const maxBucket = Math.max(...buckets, 1);
-          return buckets.map((bucket) => Math.max((bucket / maxBucket) * 100, 12));
-        })()
-      : [20, 34, 52, 71, 83, 74, 58, 37, 24];
+  if (!residuals?.length) {
+    return (
+      <div className="flex min-h-[10rem] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No residual series returned from the API.
+      </div>
+    );
+  }
+
+  const histogramBars = (() => {
+    const values = residuals.map((point) => point.residual);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const bucketCount = 9;
+    const range = Math.max(max - min, 1);
+    const buckets = Array.from({ length: bucketCount }, () => 0);
+    values.forEach((value) => {
+      const idx = Math.min(
+        Math.floor(((value - min) / range) * bucketCount),
+        bucketCount - 1
+      );
+      buckets[idx] += 1;
+    });
+    const maxBucket = Math.max(...buckets, 1);
+    return buckets.map((bucket) => Math.max((bucket / maxBucket) * 100, 12));
+  })();
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
@@ -348,11 +443,11 @@ const PlaceholderChart: React.FC<{ residuals?: { fitted: number; residual: numbe
         ))}
       </div>
       <div className="mt-2 flex shrink-0 justify-between gap-1 text-[10px] text-slate-500 sm:mt-3 sm:text-[11px]">
-        <span>-3σ</span>
-        <span>-1σ</span>
-        <span>0</span>
-        <span>+1σ</span>
-        <span>+3σ</span>
+        <span>Low</span>
+        <span />
+        <span>Mid</span>
+        <span />
+        <span>High</span>
       </div>
     </div>
   );
@@ -361,40 +456,23 @@ const PlaceholderChart: React.FC<{ residuals?: { fitted: number; residual: numbe
 const HeatmapChart: React.FC<{
   heatmap?: { variable: string; correlation: number }[];
 }> = ({ heatmap }) => {
-  const variables = [
-    "Bookings",
-    "typhoon_msw",
-    "holiday_lead_5",
-    "holiday_intensity",
-    "is_long_weekend",
-  ];
   const correlationMap = new Map(
     (heatmap ?? []).map((point) => [point.variable, point.correlation])
   );
-  const bookingCorrelations = {
-    typhoon_msw: correlationMap.get("typhoon_msw") ?? -0.078,
-    holiday_lead_5: correlationMap.get("holiday_lead_5") ?? 0.039,
-    holiday_intensity: correlationMap.get("holiday_intensity") ?? -0.035,
-    is_long_weekend: correlationMap.get("is_long_weekend") ?? -0.02,
-  };
+  const driverLabels = Array.from(correlationMap.keys()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" })
+  );
+  const variables = ["Bookings", ...driverLabels];
 
-  const pairwiseFallback: Record<string, number> = {
-    "typhoon_msw|holiday_lead_5": -0.034,
-    "typhoon_msw|holiday_intensity": -0.11,
-    "typhoon_msw|is_long_weekend": 0.006,
-    "holiday_lead_5|holiday_intensity": 0.21,
-    "holiday_lead_5|is_long_weekend": 0.031,
-    "holiday_intensity|is_long_weekend": -0.22,
-  };
-
-  const getPairwiseValue = (a: string, b: string) => {
+  const getPairwiseValue = (a: string, b: string): number | null => {
     if (a === b) return 1;
-    if (a === "Bookings") return bookingCorrelations[b as keyof typeof bookingCorrelations];
-    if (b === "Bookings") return bookingCorrelations[a as keyof typeof bookingCorrelations];
-
-    const direct = `${a}|${b}`;
-    const reverse = `${b}|${a}`;
-    return pairwiseFallback[direct] ?? pairwiseFallback[reverse] ?? 0;
+    if (a === "Bookings" && b !== "Bookings") {
+      return correlationMap.has(b) ? correlationMap.get(b)! : null;
+    }
+    if (b === "Bookings" && a !== "Bookings") {
+      return correlationMap.has(a) ? correlationMap.get(a)! : null;
+    }
+    return null;
   };
 
   const toCellColor = (value: number) => {
@@ -405,6 +483,14 @@ const HeatmapChart: React.FC<{
     }
     return `rgba(220, 38, 38, ${0.15 + clamped * 0.8})`;
   };
+
+  if (driverLabels.length === 0) {
+    return (
+      <div className="mt-4 flex min-h-[14rem] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+        No correlation heatmap points returned from the API.
+      </div>
+    );
+  }
 
   return (
     <div className="mt-4 flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5 lg:min-h-[18rem]">
@@ -444,11 +530,19 @@ const HeatmapChart: React.FC<{
                   return (
                     <div
                       key={`cell-${rowLabel}-${colLabel}`}
-                      className="flex aspect-square min-h-[2.75rem] w-full max-w-[4.25rem] items-center justify-center justify-self-center rounded-md text-[11px] font-semibold tabular-nums text-slate-900 shadow-sm ring-1 ring-black/5 sm:min-h-[3.25rem] sm:max-w-[4.75rem] sm:text-xs"
-                      style={{ backgroundColor: toCellColor(value) }}
-                      title={`${rowLabel} vs ${colLabel}: ${value.toFixed(4)}`}
+                      className={`flex aspect-square min-h-[2.75rem] w-full max-w-[4.25rem] items-center justify-center justify-self-center rounded-md text-[11px] font-semibold tabular-nums shadow-sm ring-1 ring-black/5 sm:min-h-[3.25rem] sm:max-w-[4.75rem] sm:text-xs ${
+                        value === null ? "bg-slate-100 text-slate-400" : "text-slate-900"
+                      }`}
+                      style={
+                        value === null ? undefined : { backgroundColor: toCellColor(value) }
+                      }
+                      title={
+                        value === null
+                          ? `${rowLabel} vs ${colLabel}: not provided by API`
+                          : `${rowLabel} vs ${colLabel}: ${value.toFixed(4)}`
+                      }
                     >
-                      {value.toFixed(3)}
+                      {value === null ? "—" : value.toFixed(3)}
                     </div>
                   );
                 })}
@@ -568,16 +662,9 @@ export const AdvancedMetrics: React.FC = () => {
       try {
         setIsLoading(true);
         setLoadError("");
-        let data: AdvancedMetricsResponse;
-        try {
-          data = await fetchJson<AdvancedMetricsResponse>(
-            apiRoutes.advancedMetrics(effectiveModelId)
-          );
-        } catch {
-          data = await fetchJson<AdvancedMetricsResponse>(
-            apiRoutes.legacyAdvancedMetrics(effectiveModelId)
-          );
-        }
+        const data = await fetchJson<AdvancedMetricsResponse>(
+          apiRoutes.advancedMetrics(effectiveModelId)
+        );
         setAdvancedMetrics(data);
       } catch (error) {
         console.error("Unable to load advanced metrics:", error);
@@ -599,44 +686,20 @@ export const AdvancedMetrics: React.FC = () => {
     }
   }, [effectiveModelId, effectiveModelVersion]);
 
-  const aicScore = useMemo(() => {
-    const rmse = advancedMetrics?.statistics.rmse ?? 158.47;
-    const mae = advancedMetrics?.statistics.mae ?? 112.3;
-    return rmse * 1.2 + mae * 0.8;
-  }, [advancedMetrics?.statistics.mae, advancedMetrics?.statistics.rmse]);
-  const acfValues = useMemo(
-    () => [0.78, 0.41, 0.24, -0.08, 0.12, 0.07, 0.18, -0.04, 0.16, -0.26, -0.34, 0.22, -0.31, 0.25, -0.09, -0.28, -0.36, -0.42, -0.4, -0.18],
-    []
+  const acfPoints = useMemo(
+    () => advancedMetrics?.charts.acf ?? [],
+    [advancedMetrics?.charts.acf]
   );
-  const pacfValues = useMemo(
-    () => [0.77, -0.06, -0.11, -0.14, 0.12, -0.05, 0.24, -0.29, -0.35, -0.31, 0.04, 0.11, -0.27, -0.03, -0.32, -0.05, -0.34, -0.06, -0.3, -0.07],
-    []
+  const pacfPoints = useMemo(
+    () => advancedMetrics?.charts.pacf ?? [],
+    [advancedMetrics?.charts.pacf]
   );
   const validationSummary = useMemo(() => {
-    const ljung = advancedMetrics?.statistical_tests.ljungbox_pvalue ?? 0.0812;
-    const jarque =
-      advancedMetrics?.statistical_tests.jarquebera_stat ??
-      advancedMetrics?.statistical_tests.jarque_bera ??
-      2.91;
-    const adf = advancedMetrics?.statistical_tests.adf_pvalue ?? 0.034;
-    const wmape = advancedMetrics?.statistics.wmape ?? 4.62;
-    return [
-      wmape <= 5
-        ? "Forecast accuracy is acceptable for operational planning, but monitor peak-week variance."
-        : "Forecast error remains elevated; prioritize feature enrichment before high-stakes rollout.",
-      ljung > 0.05
-        ? "Residual autocorrelation check is acceptable (Ljung-Box above threshold)."
-        : "Residual autocorrelation remains; consider revisiting lag structure.",
-      adf < 0.05
-        ? "Series is sufficiently stationary for current modeling assumptions."
-        : "Stationarity is weak; additional differencing or transformations may help.",
-      jarque < 6
-        ? "Residual distribution is reasonably stable for current validation."
-        : "Residual normality is weak; investigate outliers and regime shifts.",
-      "Use confidence intervals as decision bounds when setting weekly capacity buffers.",
-      "Track forecast drift weekly and retrain when error trend rises for multiple consecutive weeks.",
-      "Prioritize exogenous data quality checks (weather, holidays, events) before model-order changes.",
-    ];
+    if (!advancedMetrics) return [];
+    const t = advancedMetrics.statistical_tests;
+    return [t.adf_conclusion, t.ljungbox_conclusion, t.jarquebera_conclusion].filter(
+      (line) => line.trim().length > 0
+    );
   }, [advancedMetrics]);
   const toggleKpiCard = (cardId: string) => {
     setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
@@ -668,7 +731,7 @@ export const AdvancedMetrics: React.FC = () => {
 
       {loadError && (
         <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[14px] text-red-700 shadow-sm">
-          {loadError} Showing fallback data where needed.
+          {loadError}
         </p>
       )}
 
@@ -676,7 +739,11 @@ export const AdvancedMetrics: React.FC = () => {
         <MetricCard
           id="wmape"
           label="WMAPE"
-          value={`${(advancedMetrics?.statistics.wmape ?? 4.62).toFixed(2)}%`}
+          value={
+            advancedMetrics != null
+              ? `${advancedMetrics.statistics.wmape.toFixed(2)}%`
+              : "—"
+          }
           helper="Weighted mean absolute percentage error."
           implication="Lower WMAPE indicates proportionally smaller demand forecast misses across varying booking volumes."
           icon={<Percent className="h-4 w-4" />}
@@ -686,7 +753,9 @@ export const AdvancedMetrics: React.FC = () => {
         <MetricCard
           id="mae"
           label="MAE"
-          value={(advancedMetrics?.statistics.mae ?? 112.3).toFixed(2)}
+          value={
+            advancedMetrics != null ? advancedMetrics.statistics.mae.toFixed(2) : "—"
+          }
           helper="Mean absolute prediction error."
           implication="MAE shows average absolute miss in booking units; lower values improve operational planning precision."
           icon={<Activity className="h-4 w-4" />}
@@ -696,7 +765,9 @@ export const AdvancedMetrics: React.FC = () => {
         <MetricCard
           id="rmse"
           label="RMSE"
-          value={(advancedMetrics?.statistics.rmse ?? 158.47).toFixed(2)}
+          value={
+            advancedMetrics != null ? advancedMetrics.statistics.rmse.toFixed(2) : "—"
+          }
           helper="Root mean squared error."
           implication="RMSE emphasizes larger misses; high values can indicate risk during peak-demand weeks."
           icon={<Sigma className="h-4 w-4" />}
@@ -704,13 +775,20 @@ export const AdvancedMetrics: React.FC = () => {
           onToggle={toggleKpiCard}
         />
         <MetricCard
-          id="aic"
-          label="AIC Score"
-          value={aicScore.toFixed(2)}
-          helper="Model information criterion (lower is better)."
-          implication="AIC balances fit and complexity; lower scores suggest a more efficient model setup."
+          id="ljung-box-pvalue"
+          label="Ljung-Box p-value"
+          value={
+            advancedMetrics != null
+              ? advancedMetrics.statistical_tests.ljungbox_pvalue.toFixed(4)
+              : "—"
+          }
+          helper="Ljung–Box test on residuals (null: no serial correlation)."
+          implication={
+            advancedMetrics?.statistical_tests.ljungbox_conclusion ??
+            "Backend conclusion for the Ljung–Box test appears here when metrics load."
+          }
           icon={<Sparkles className="h-4 w-4" />}
-          isFlipped={Boolean(flippedKpis["aic"])}
+          isFlipped={Boolean(flippedKpis["ljung-box-pvalue"])}
           onToggle={toggleKpiCard}
         />
       </section>
@@ -722,16 +800,13 @@ export const AdvancedMetrics: React.FC = () => {
         <p className="mt-1 text-sm text-slate-500">
           Historical validation comparison showing model accuracy behavior.
         </p>
-        <ValidationGraph
-          residuals={advancedMetrics?.charts.residuals}
-          validationGraph={advancedMetrics?.charts.validation_graph}
-        />
+        <ValidationGraph validationGraph={advancedMetrics?.charts.validation_graph} />
       </section>
 
       <section className="grid min-h-0 w-full max-w-full grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
         <PlaceholderPanel
           title="Residual Distribution Graph"
-          description="Placeholder for residual diagnostics distribution."
+          description="Distribution of model residuals from the backend diagnostics payload."
           residuals={advancedMetrics?.charts.residuals}
         />
 
@@ -742,101 +817,142 @@ export const AdvancedMetrics: React.FC = () => {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <div className="space-y-4">
+      <section className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-2">
           <StemCheckChart
             title="Pattern Check (ACF)"
-            subtitle="Residual autocorrelation"
-            values={acfValues}
+            subtitle="Residual autocorrelation (lags ≥ 1; lag 0 omitted)."
+            points={acfPoints}
           />
           <StemCheckChart
             title="Signal Check (PACF)"
-            subtitle="Partial autocorrelation"
-            values={pacfValues}
+            subtitle="Partial autocorrelation (lags ≥ 1; lag 0 omitted)."
+            points={pacfPoints}
           />
         </div>
 
         <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">
-            Model Setup
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-900">Model Setup</h3>
           <p className="mt-1 max-w-none text-sm text-slate-500">
             Algorithm, variables, orders, and validation test values.
           </p>
-          <div className="mt-4 space-y-3 text-sm text-slate-700">
-            <p><span className="font-semibold">Algorithm:</span> SARIMAX</p>
-            <p>
-              <span className="font-semibold">Selected Order (p,d,q):</span>{" "}
-              ({(advancedMetrics?.model_params.order ?? [2, 1, 1]).join(", ")})
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Algorithm
+              </p>
+              <p className="mt-2 text-base font-semibold text-slate-900">SARIMAX</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Order (p,d,q)
+              </p>
+              <p className="mt-2 font-mono text-base font-semibold text-slate-900">
+                {advancedMetrics != null && advancedMetrics.model_params.order.length > 0
+                  ? `(${advancedMetrics.model_params.order.join(", ")})`
+                  : "—"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:col-span-2 lg:col-span-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {advancedMetrics != null
+                  ? seasonalOrderHeading(advancedMetrics.model_params.seasonal_order.length)
+                  : "Seasonal order"}
+              </p>
+              <p className="mt-2 font-mono text-base font-semibold text-slate-900">
+                {advancedMetrics != null && advancedMetrics.model_params.seasonal_order.length > 0
+                  ? `(${advancedMetrics.model_params.seasonal_order.join(", ")})`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 border-t border-slate-100 pt-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Exogenous variables
             </p>
-            <p>
-              <span className="font-semibold">Seasonal Order (P,D,Q,s):</span>{" "}
-              ({(advancedMetrics?.model_params.seasonal_order ?? [1, 0, 1, 52]).join(", ")})
-            </p>
-            <div>
-              <p className="font-semibold">Exogenous Variables</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(advancedMetrics?.model_params.exogenous_features ?? [
-                  "holiday_lead",
-                  "is_long_weekend",
-                  "storm_flag",
-                ]).map((tag) => (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {advancedMetrics == null ? (
+                <span className="text-sm text-slate-500">—</span>
+              ) : advancedMetrics.model_params.exogenous_features.length === 0 ? (
+                <span className="text-sm text-slate-500">None listed for this model.</span>
+              ) : (
+                advancedMetrics.model_params.exogenous_features.map((tag) => (
                   <span
                     key={tag}
                     className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700"
                   >
                     {tag}
                   </span>
-                ))}
-              </div>
+                ))
+              )}
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="font-semibold text-slate-800">Validation Tests</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Ljung-Box
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-slate-900">
-                    {(advancedMetrics?.statistical_tests.ljungbox_pvalue ?? 0.0812).toFixed(4)}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">Residual autocorrelation check</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Jarque-Bera
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-slate-900">
-                    {(
-                      advancedMetrics?.statistical_tests.jarquebera_stat ??
-                      advancedMetrics?.statistical_tests.jarque_bera ??
-                      2.91
-                    ).toFixed(2)}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">Residual normality signal</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    ADF Test
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-slate-900">
-                    {(advancedMetrics?.statistical_tests.adf_pvalue ?? 0.034).toFixed(4)}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">Stationarity significance level</p>
-                </div>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-800">Validation tests</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Ljung-Box
+                </p>
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {advancedMetrics != null
+                    ? advancedMetrics.statistical_tests.ljungbox_pvalue.toFixed(4)
+                    : "—"}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {advancedMetrics?.statistical_tests.ljungbox_conclusion ??
+                    "Residual autocorrelation check"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Jarque-Bera
+                </p>
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {advancedMetrics != null
+                    ? advancedMetrics.statistical_tests.jarquebera_stat.toFixed(2)
+                    : "—"}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {advancedMetrics?.statistical_tests.jarquebera_conclusion ??
+                    "Residual normality signal"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  ADF Test
+                </p>
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {advancedMetrics != null
+                    ? advancedMetrics.statistical_tests.adf_pvalue.toFixed(4)
+                    : "—"}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {advancedMetrics?.statistical_tests.adf_conclusion ??
+                    "Stationarity significance level"}
+                </p>
               </div>
             </div>
           </div>
         </div>
 
         <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">
-            What This Means
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-900">What This Means</h3>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
-            {validationSummary.map((summary) => (
-              <li key={summary}>{summary}</li>
-            ))}
+            {advancedMetrics == null ? (
+              <li className="list-none text-slate-500">—</li>
+            ) : validationSummary.length > 0 ? (
+              validationSummary.map((summary, idx) => (
+                <li key={`${idx}-${summary.slice(0, 48)}`}>{summary}</li>
+              ))
+            ) : (
+              <li className="list-none text-slate-500">
+                No statistical test conclusion strings were included in the API response.
+              </li>
+            )}
           </ul>
         </div>
       </section>
