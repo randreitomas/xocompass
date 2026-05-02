@@ -1,15 +1,20 @@
-export type AppRole = "Admin" | "Manager" | "Analyst" | "Marketing";
+import type { AppRole } from "../types/roles";
 
-export const ALL_ROLES: AppRole[] = ["Admin", "Manager", "Analyst", "Marketing"];
-
-export const getStoredRole = (): AppRole | null => {
-  const raw = localStorage.getItem("xocompass:userRole");
-  if (!raw) return null;
-  return ALL_ROLES.includes(raw as AppRole) ? (raw as AppRole) : null;
+const rank: Record<AppRole, number> = {
+  VIEWER: 0,
+  ANALYST: 1,
+  ADMIN: 2,
 };
 
-export const hasRoleAccess = (allowedRoles: AppRole[]): boolean => {
-  const role = getStoredRole();
-  return role != null && allowedRoles.includes(role);
-};
+/** True if `userRole` has at least the privileges of `required` (ADMIN ≥ ANALYST ≥ VIEWER). */
+export function meetsMinimumRole(userRole: AppRole, required: AppRole): boolean {
+  return rank[userRole] >= rank[required];
+}
 
+export function canUploadOrRetrain(role: AppRole | null): boolean {
+  return role === "ADMIN" || role === "ANALYST";
+}
+
+export function canManageSaves(role: AppRole | null): boolean {
+  return role === "ADMIN" || role === "ANALYST";
+}

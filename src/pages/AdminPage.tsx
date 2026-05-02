@@ -1,34 +1,22 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import * as adminService from "../services/adminService";
+import type { components } from "../types/api";
 
 type SectionId = "users" | "overview" | "audit" | "config";
-type UserRole = "Admin" | "Analyst" | "Viewer";
-type UserStatus = "Active" | "Inactive";
-type ActionType = "Login" | "Export" | "Forecast Run" | "Settings Change";
-type ActionStatus = "Success" | "Failed";
+type UiUserRole = "Admin" | "Analyst" | "Viewer";
 
-interface StaffUser {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  status: UserStatus;
-  lastLogin: string;
-}
-
-interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  user: string;
-  actionType: ActionType;
-  module: string;
-  status: ActionStatus;
-}
+type AdminUserListItem = components["schemas"]["AdminUserListItem"];
+type AuditLogItem = components["schemas"]["AuditLogItem"];
+type SystemOverviewResponse = components["schemas"]["SystemOverviewResponse"];
+type PipelineStatusResponse = components["schemas"]["PipelineStatusResponse"];
+type CreateInvitationResponse = components["schemas"]["CreateInvitationResponse"];
 
 interface ModuleConfig {
   id: string;
   name: string;
-  visibility: Record<UserRole, boolean>;
+  visibility: Record<UiUserRole, boolean>;
 }
 
 const SECTION_TABS: Array<{ id: SectionId; label: string }> = [
@@ -38,35 +26,6 @@ const SECTION_TABS: Array<{ id: SectionId; label: string }> = [
   { id: "config", label: "Report & Module Configuration" },
 ];
 
-const INITIAL_USERS: StaffUser[] = [
-  { id: "u1", name: "Maria Santos", email: "maria.santos@kjs.com", role: "Admin", status: "Active", lastLogin: "Apr 29, 2026 08:05 PM" },
-  { id: "u2", name: "Ramon Flores", email: "ramon.flores@kjs.com", role: "Analyst", status: "Active", lastLogin: "Apr 29, 2026 07:51 PM" },
-  { id: "u3", name: "Liza Gomez", email: "liza.gomez@kjs.com", role: "Viewer", status: "Active", lastLogin: "Apr 29, 2026 06:13 PM" },
-  { id: "u4", name: "Ken Dela Cruz", email: "ken.delacruz@kjs.com", role: "Analyst", status: "Inactive", lastLogin: "Apr 26, 2026 10:04 AM" },
-];
-
-const RECENT_EVENTS = [
-  "Admin login: Maria Santos",
-  "SARIMAX sync completed",
-  "Forecast run generated for model v10.1",
-  "Role updated: Viewer -> Analyst",
-  "Exported Forecast & Actions report",
-  "Failed login attempt blocked",
-  "Manual sync triggered by analyst",
-  "Advanced Metrics viewed by manager",
-  "User invitation sent to new analyst",
-  "Settings change: KPI alert threshold",
-];
-
-const INITIAL_LOGS: AuditLogEntry[] = Array.from({ length: 24 }, (_, i) => ({
-  id: `log-${i + 1}`,
-  timestamp: `2026-04-${String(29 - Math.floor(i / 4)).padStart(2, "0")} ${String(8 + (i % 6)).padStart(2, "0")}:1${i % 10}`,
-  user: i % 3 === 0 ? "Maria Santos" : i % 3 === 1 ? "Ramon Flores" : "Liza Gomez",
-  actionType: (["Login", "Export", "Forecast Run", "Settings Change"] as ActionType[])[i % 4],
-  module: i % 2 === 0 ? "Forecast & Actions" : "Advanced Metrics",
-  status: i % 7 === 0 ? "Failed" : "Success",
-}));
-
 const INITIAL_MODULES: ModuleConfig[] = [
   { id: "m1", name: "Business Analytics Dashboard", visibility: { Admin: true, Analyst: true, Viewer: true } },
   { id: "m2", name: "Forecast & Actions", visibility: { Admin: true, Analyst: true, Viewer: true } },
@@ -74,67 +33,206 @@ const INITIAL_MODULES: ModuleConfig[] = [
   { id: "m4", name: "Admin Console", visibility: { Admin: true, Analyst: false, Viewer: false } },
 ];
 
+function uiRoleToApi(role: UiUserRole): components["schemas"]["CreateInvitationRequest"]["role"] {
+  if (role === "Admin") return "ADMIN";
+  if (role === "Analyst") return "ANALYST";
+  return "VIEWER";
+}
+
+function apiRoleLabel(role: AdminUserListItem["role"]): string {
+  switch (role) {
+    case "ADMIN":
+      return "ADMIN";
+    case "ANALYST":
+      return "ANALYST";
+    case "VIEWER":
+      return "VIEWER";
+    default:
+      return role;
+  }
+}
+
+function formatLogin(iso?: string | null): string {
+  if (!iso) return "Never";
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "Never";
+  }
+}
+
+function dateInputsToUtcIsoRange(from: string, to: string): {
+  from_date?: string | null;
+  to_date?: string | null;
+} {
+  const from_date = from ? `${from}T00:00:00.000Z` : null;
+  const to_date = to ? `${to}T23:59:59.999Z` : null;
+  return { from_date, to_date };
+}
+
 export const AdminPage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SectionId>("users");
-  const [users, setUsers] = useState<StaffUser[]>(INITIAL_USERS);
-  const [logs] = useState<AuditLogEntry[]>(INITIAL_LOGS);
-  const [modules, setModules] = useState<ModuleConfig[]>(INITIAL_MODULES);
+
+  const [users, setUsers] = useState<AdminUserListItem[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState("");
+
+  const [overview, setOverview] = useState<SystemOverviewResponse | null>(null);
+  const [pipeline, setPipeline] = useState<PipelineStatusResponse | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
+
+  const [auditItems, setAuditItems] = useState<AuditLogItem[]>([]);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const [actionTypes, setActionTypes] = useState<string[]>([]);
+  const [moduleTypes, setModuleTypes] = useState<string[]>([]);
+
+  const [modules] = useState<ModuleConfig[]>(INITIAL_MODULES);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "Viewer" as UserRole });
+  const [inviteForm, setInviteForm] = useState({
+    name: "",
+    email: "",
+    role: "Viewer" as UiUserRole,
+  });
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteUrlPayload, setInviteUrlPayload] = useState<CreateInvitationResponse | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [filterUser, setFilterUser] = useState("All");
-  const [filterAction, setFilterAction] = useState<"All" | ActionType>("All");
-  const [logPage, setLogPage] = useState(1);
+  const [filterUserId, setFilterUserId] = useState("All");
+  const [filterAction, setFilterAction] = useState("All");
+  const [filterModule, setFilterModule] = useState("All");
+  const [filterStatus, setFilterStatus] = useState<"All" | "SUCCESS" | "FAILED">("All");
+
   const [forecastThreshold, setForecastThreshold] = useState("12");
   const [bookingBenchmark, setBookingBenchmark] = useState("2500");
   const [defaultDateRange, setDefaultDateRange] = useState("Last 90 Days");
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configMessage, setConfigMessage] = useState("");
 
-  const pipelineHealthy = true;
-  const filteredLogs = useMemo(() => {
-    return logs.filter((entry) => {
-      if (filterUser !== "All" && entry.user !== filterUser) return false;
-      if (filterAction !== "All" && entry.actionType !== filterAction) return false;
-      if (dateFrom && entry.timestamp < dateFrom) return false;
-      if (dateTo && entry.timestamp > `${dateTo} 23:59`) return false;
-      return true;
-    });
-  }, [logs, filterUser, filterAction, dateFrom, dateTo]);
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError("");
+    try {
+      const res = await adminService.getUsers({ page: 1, page_size: 100 });
+      setUsers(res.items);
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
 
-  const pageSize = 8;
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
-  const paginatedLogs = filteredLogs.slice((logPage - 1) * pageSize, logPage * pageSize);
+  const loadOverviewBundle = useCallback(async () => {
+    setOverviewLoading(true);
+    setOverviewError("");
+    try {
+      const [ov, pipe] = await Promise.all([
+        adminService.getSystemOverview(),
+        adminService.getPipelineStatus(),
+      ]);
+      setOverview(ov);
+      setPipeline(pipe);
+    } catch (e) {
+      setOverviewError(formatApiErrorForUi(e));
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, []);
 
-  const handleInviteUser = () => {
-    if (!inviteForm.name || !inviteForm.email) return;
-    setUsers((prev) => [
-      {
-        id: `u-${prev.length + 1}`,
-        name: inviteForm.name,
-        email: inviteForm.email,
-        role: inviteForm.role,
-        status: "Active",
-        lastLogin: "Never",
-      },
-      ...prev,
-    ]);
-    setInviteForm({ name: "", email: "", role: "Viewer" });
-    setShowInviteModal(false);
-  };
+  const loadAuditVocab = useCallback(async () => {
+    try {
+      const v = await adminService.getAuditLogActionTypes();
+      setActionTypes(v.action_types);
+      setModuleTypes(v.modules);
+    } catch {
+      setActionTypes([]);
+      setModuleTypes([]);
+    }
+  }, []);
 
-  const toggleModuleVisibility = (moduleId: string, role: UserRole) => {
-    setModules((prev) =>
-      prev.map((module) =>
-        module.id === moduleId
-          ? { ...module, visibility: { ...module.visibility, [role]: !module.visibility[role] } }
-          : module
-      )
-    );
-  };
+  const fetchAuditPage = useCallback(
+    async (cursor: string | null, replace: boolean) => {
+      setAuditLoading(true);
+      setAuditError("");
+      const { from_date, to_date } = dateInputsToUtcIsoRange(dateFrom, dateTo);
+      try {
+        const page = await adminService.getAuditLogs({
+          cursor,
+          limit: 50,
+          from_date,
+          to_date,
+          action_type: filterAction === "All" ? null : filterAction,
+          module: filterModule === "All" ? null : filterModule,
+          status: filterStatus === "All" ? null : filterStatus,
+          user_id: filterUserId === "All" ? null : filterUserId,
+        });
+        setAuditItems((prev) =>
+          replace ? page.items : [...prev, ...page.items]
+        );
+        setAuditCursor(page.next_cursor ?? null);
+      } catch (e) {
+        setAuditError(formatApiErrorForUi(e));
+      } finally {
+        setAuditLoading(false);
+      }
+    },
+    [dateFrom, dateTo, filterAction, filterModule, filterStatus, filterUserId]
+  );
+
+  useEffect(() => {
+    if (activeSection !== "users") return;
+    void loadUsers();
+  }, [activeSection, loadUsers]);
+
+  useEffect(() => {
+    if (activeSection !== "overview") return;
+    void loadOverviewBundle();
+    const id = window.setInterval(() => {
+      void loadOverviewBundle();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [activeSection, loadOverviewBundle]);
+
+  useEffect(() => {
+    if (activeSection !== "audit") return;
+    void loadAuditVocab();
+  }, [activeSection, loadAuditVocab]);
+
+  useEffect(() => {
+    if (activeSection !== "audit") return;
+    setAuditCursor(null);
+    void fetchAuditPage(null, true);
+  }, [activeSection, fetchAuditPage]);
+
+  const userFilterOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const u of users) ids.add(u.id);
+    return [...ids];
+  }, [users]);
+
+  const pipelineHealthy =
+    overview?.pipeline_status === "healthy" ||
+    pipeline?.last_status === "SUCCESS";
 
   const exportLogsCsv = () => {
-    const headers = ["timestamp", "user", "actionType", "module", "status"];
-    const rows = filteredLogs.map((entry) => [entry.timestamp, entry.user, entry.actionType, entry.module, entry.status]);
+    const headers = ["timestamp", "user_email", "action_type", "module", "status"];
+    const rows = auditItems.map((entry) => [
+      entry.timestamp,
+      entry.user_email_snapshot ?? "",
+      entry.action_type,
+      entry.module,
+      entry.status,
+    ]);
     const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -143,6 +241,107 @@ export const AdminPage: React.FC = () => {
     link.setAttribute("download", "audit-logs.csv");
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleActivate = async (userId: string) => {
+    try {
+      await adminService.activateUser(userId);
+      await loadUsers();
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    }
+  };
+
+  const handleDeactivate = async (userId: string) => {
+    try {
+      await adminService.deactivateUser(userId);
+      await loadUsers();
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    }
+  };
+
+  const submitInvite = async () => {
+    if (!inviteForm.email.trim()) return;
+    setInviteBusy(true);
+    try {
+      const created = await adminService.createInvitation({
+        email: inviteForm.email.trim(),
+        role: uiRoleToApi(inviteForm.role),
+      });
+      setInviteUrlPayload(created);
+      setInviteCopied(false);
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  const closeInviteFlow = () => {
+    if (inviteUrlPayload && !inviteCopied) {
+      const ok = window.confirm(
+        "Dismiss without copying? This invite URL is shown only once and cannot be retrieved later."
+      );
+      if (!ok) return;
+    }
+    setShowInviteModal(false);
+    setInviteForm({ name: "", email: "", role: "Viewer" });
+    setInviteUrlPayload(null);
+    setInviteCopied(false);
+  };
+
+  const copyInviteUrl = async () => {
+    if (!inviteUrlPayload?.invite_url) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrlPayload.invite_url);
+      setInviteCopied(true);
+    } catch {
+      setInviteCopied(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    setConfigSaving(true);
+    setConfigMessage("");
+    try {
+      const list = await adminService.listSettings();
+      const keys = new Set(list.items.map((i) => i.key));
+      const writes: Promise<unknown>[] = [];
+      if (keys.has("forecast_deviation_alert_threshold_pct")) {
+        writes.push(
+          adminService.updateSetting(
+            "forecast_deviation_alert_threshold_pct",
+            Number(forecastThreshold)
+          )
+        );
+      }
+      if (keys.has("booking_volume_benchmark")) {
+        writes.push(
+          adminService.updateSetting(
+            "booking_volume_benchmark",
+            Number(bookingBenchmark)
+          )
+        );
+      }
+      if (keys.has("default_date_range_label")) {
+        writes.push(
+          adminService.updateSetting("default_date_range_label", defaultDateRange)
+        );
+      }
+      if (writes.length === 0) {
+        setConfigMessage(
+          "No matching settings keys on the server; inputs kept locally only."
+        );
+      } else {
+        await Promise.all(writes);
+        setConfigMessage("Saved.");
+      }
+    } catch (e) {
+      setConfigMessage(formatApiErrorForUi(e));
+    } finally {
+      setConfigSaving(false);
+    }
   };
 
   return (
@@ -175,6 +374,15 @@ export const AdminPage: React.FC = () => {
               <Plus className="h-4 w-4" /> Invite User
             </button>
           </div>
+          {usersLoading ? (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-teal-600 border-t-transparent align-middle" />
+              Loading users…
+            </p>
+          ) : null}
+          {usersError ? (
+            <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{usersError}</p>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
@@ -183,16 +391,26 @@ export const AdminPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td className="px-3 py-2">{u.name}</td>
+                    <td className="px-3 py-2">{u.full_name}</td>
                     <td className="px-3 py-2">{u.email}</td>
-                    <td className="px-3 py-2">{u.role}</td>
-                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${u.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{u.status}</span></td>
-                    <td className="px-3 py-2">{u.lastLogin}</td>
+                    <td className="px-3 py-2">{apiRoleLabel(u.role)}</td>
+                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{u.is_active ? "Active" : "Inactive"}</span></td>
+                    <td className="px-3 py-2">{formatLogin(u.last_login_at)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
-                        <button className="rounded-md border border-slate-200 px-2 py-1 text-xs">Edit Role</button>
-                        <button className="rounded-md border border-slate-200 px-2 py-1 text-xs">{u.status === "Active" ? "Deactivate" : "Activate"}</button>
-                        <button className="rounded-md border border-slate-200 px-2 py-1 text-xs">Reset Password</button>
+                        <button type="button" className="rounded-md border border-slate-200 px-2 py-1 text-xs opacity-50" disabled title="Use API/console for role edits">
+                          Edit Role
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-200 px-2 py-1 text-xs"
+                          onClick={() => void (u.is_active ? handleDeactivate(u.id) : handleActivate(u.id))}
+                        >
+                          {u.is_active ? "Deactivate" : "Activate"}
+                        </button>
+                        <button type="button" className="rounded-md border border-slate-200 px-2 py-1 text-xs opacity-50" disabled title="Not available via API">
+                          Reset Password
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -205,20 +423,40 @@ export const AdminPage: React.FC = () => {
 
       {activeSection === "overview" && (
         <section className="grid gap-4 lg:grid-cols-3">
+          {overviewLoading ? (
+            <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 lg:col-span-3">
+              Loading system overview…
+            </p>
+          ) : null}
+          {overviewError ? (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 lg:col-span-3">{overviewError}</p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:col-span-3 xl:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Total Active Users</p><p className="mt-2 text-3xl font-semibold text-slate-900">{users.filter((u) => u.status === "Active").length}</p></div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Last Data Sync</p><p className="mt-2 text-lg font-semibold text-slate-900">Apr 29, 2026 07:48 PM</p></div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Pipeline Status</p><p className={`mt-2 text-lg font-semibold ${pipelineHealthy ? "text-emerald-700" : "text-rose-700"}`}>{pipelineHealthy ? "Healthy" : "Error"}</p></div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Pending Alerts</p><p className="mt-2 text-3xl font-semibold text-slate-900">3</p></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Total Active Users</p><p className="mt-2 text-3xl font-semibold text-slate-900">{overview?.active_users_count ?? "—"}</p></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Last Data Sync</p><p className="mt-2 text-lg font-semibold text-slate-900">{overview?.last_data_sync ? formatLogin(overview.last_data_sync) : "—"}</p></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Pipeline Status</p><p className={`mt-2 text-lg font-semibold ${pipelineHealthy ? "text-emerald-700" : "text-rose-700"}`}>{overview?.pipeline_status ?? pipeline?.last_status ?? "—"}</p></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase text-slate-400">Pending Invitations</p><p className="mt-2 text-3xl font-semibold text-slate-900">{overview?.pending_invitations_count ?? "—"}</p></div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
             <h3 className="text-sm font-semibold text-slate-900">Recent Activity Feed</h3>
-            <ul className="mt-3 space-y-2 text-sm text-slate-700">{RECENT_EVENTS.map((event) => <li key={event} className="rounded-lg bg-slate-50 px-3 py-2">{event}</li>)}</ul>
+            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              {(overview?.recent_activity ?? []).map((event) => (
+                <li key={event.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                  {event.timestamp} · {event.actor_email ?? "—"} · {event.action_type} · {event.module} ·{" "}
+                  {event.status}
+                </li>
+              ))}
+              {(overview?.recent_activity ?? []).length === 0 ? (
+                <li className="rounded-lg bg-slate-50 px-3 py-2 text-slate-500">No recent activity returned.</li>
+              ) : null}
+            </ul>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">SARIMAX Pipeline Sync</h3>
-            <p className="mt-2 text-sm text-slate-600">Current state: <span className={`font-semibold ${pipelineHealthy ? "text-emerald-700" : "text-rose-700"}`}>{pipelineHealthy ? "Healthy" : "Error"}</span></p>
-            <p className="mt-1 text-xs text-slate-500">Last sync duration: 2m 14s</p>
+            <p className="mt-2 text-sm text-slate-600">Current state: <span className={`font-semibold ${pipelineHealthy ? "text-emerald-700" : "text-rose-700"}`}>{overview?.pipeline_status ?? "unknown"}</span> · Last job: <span className="font-medium text-slate-800">{pipeline?.last_status ?? "—"}</span></p>
+            <p className="mt-1 text-xs text-slate-500">
+              Last run: {pipeline?.last_run_at ? formatLogin(pipeline.last_run_at) : "—"}
+            </p>
             <button type="button" className="mt-4 inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
               <RefreshCw className="h-4 w-4" /> Trigger Sync
             </button>
@@ -237,38 +475,67 @@ export const AdminPage: React.FC = () => {
           <div className="mb-4 grid gap-3 md:grid-cols-4">
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              <option>All</option>
-              {Array.from(new Set(logs.map((log) => log.user))).map((user) => <option key={user}>{user}</option>)}
+            <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="All">All</option>
+              {userFilterOptions.map((id) => (
+                <option key={id} value={id}>{id}</option>
+              ))}
             </select>
-            <select value={filterAction} onChange={(e) => setFilterAction(e.target.value as "All" | ActionType)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+            <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
               <option value="All">All actions</option>
-              {(["Login", "Export", "Forecast Run", "Settings Change"] as ActionType[]).map((action) => <option key={action} value={action}>{action}</option>)}
+              {actionTypes.map((action) => (
+                <option key={action} value={action}>{action}</option>
+              ))}
             </select>
           </div>
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
+            <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="All">All modules</option>
+              {moduleTypes.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as "All" | "SUCCESS" | "FAILED")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="All">All statuses</option>
+              <option value="SUCCESS">SUCCESS</option>
+              <option value="FAILED">FAILED</option>
+            </select>
+          </div>
+          {auditLoading && auditItems.length === 0 ? (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Loading audit logs…</p>
+          ) : null}
+          {auditError ? (
+            <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{auditError}</p>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>{["Timestamp", "User", "Action Type", "Affected Module", "Status"].map((h) => <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600">{h}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {paginatedLogs.map((log) => (
+                {auditItems.map((log) => (
                   <tr key={log.id}>
                     <td className="px-3 py-2">{log.timestamp}</td>
-                    <td className="px-3 py-2">{log.user}</td>
-                    <td className="px-3 py-2">{log.actionType}</td>
+                    <td className="px-3 py-2">{log.user_email_snapshot ?? log.user_id ?? "—"}</td>
+                    <td className="px-3 py-2">{log.action_type}</td>
                     <td className="px-3 py-2">{log.module}</td>
-                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${log.status === "Success" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{log.status}</span></td>
+                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${log.status === "SUCCESS" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{log.status}</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <div className="mt-4 flex items-center justify-between text-sm">
-            <span className="text-slate-500">Page {logPage} of {totalPages}</span>
+            <span className="text-slate-500">{auditItems.length} row{auditItems.length !== 1 ? "s" : ""} loaded</span>
             <div className="flex gap-2">
-              <button type="button" disabled={logPage === 1} onClick={() => setLogPage((p) => Math.max(1, p - 1))} className="rounded-md border border-slate-200 px-3 py-1 disabled:opacity-50">Prev</button>
-              <button type="button" disabled={logPage === totalPages} onClick={() => setLogPage((p) => Math.min(totalPages, p + 1))} className="rounded-md border border-slate-200 px-3 py-1 disabled:opacity-50">Next</button>
+              <button
+                type="button"
+                disabled={auditLoading || !auditCursor}
+                onClick={() => void fetchAuditPage(auditCursor, false)}
+                className="rounded-md border border-slate-200 px-3 py-1 disabled:opacity-50"
+              >
+                Load more
+              </button>
             </div>
           </div>
         </section>
@@ -284,10 +551,10 @@ export const AdminPage: React.FC = () => {
                 <div key={module.id} className="rounded-xl border border-slate-200 p-3">
                   <p className="text-sm font-semibold text-slate-800">{module.name}</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    {(["Admin", "Analyst", "Viewer"] as UserRole[]).map((role) => (
+                    {(["Admin", "Analyst", "Viewer"] as UiUserRole[]).map((role) => (
                       <label key={role} className="flex items-center justify-between rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-medium text-slate-700">
                         <span>{role}</span>
-                        <input type="checkbox" checked={module.visibility[role]} onChange={() => toggleModuleVisibility(module.id, role)} />
+                        <input type="checkbox" checked={module.visibility[role]} readOnly className="opacity-70" />
                       </label>
                     ))}
                   </div>
@@ -316,7 +583,15 @@ export const AdminPage: React.FC = () => {
                 </select>
               </label>
             </div>
-            <button type="button" className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            {configMessage ? (
+              <p className="mt-3 text-xs text-slate-600">{configMessage}</p>
+            ) : null}
+            <button
+              type="button"
+              disabled={configSaving}
+              onClick={() => void handleSaveConfig()}
+              className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+            >
               <ShieldCheck className="h-4 w-4" /> Save Configuration
             </button>
           </div>
@@ -326,24 +601,38 @@ export const AdminPage: React.FC = () => {
       {showInviteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-slate-900">Invite New User</h3>
-            <div className="mt-4 space-y-3">
-              <input placeholder="Name" value={inviteForm.name} onChange={(e) => setInviteForm((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              <input placeholder="Email" type="email" value={inviteForm.email} onChange={(e) => setInviteForm((p) => ({ ...p, email: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              <select value={inviteForm.role} onChange={(e) => setInviteForm((p) => ({ ...p, role: e.target.value as UserRole }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <option value="Admin">Admin</option>
-                <option value="Analyst">Analyst</option>
-                <option value="Viewer">Viewer</option>
-              </select>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowInviteModal(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Cancel</button>
-              <button type="button" onClick={handleInviteUser} className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white">Create User</button>
-            </div>
+            {!inviteUrlPayload ? (
+              <>
+                <h3 className="text-lg font-semibold text-slate-900">Invite New User</h3>
+                <p className="mt-1 text-xs text-slate-500">Invite uses email and role only; the invitee sets their full name when registering.</p>
+                <div className="mt-4 space-y-3">
+                  <input placeholder="Name (optional note)" value={inviteForm.name} onChange={(e) => setInviteForm((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                  <input placeholder="Email" type="email" required value={inviteForm.email} onChange={(e) => setInviteForm((p) => ({ ...p, email: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                  <select value={inviteForm.role} onChange={(e) => setInviteForm((p) => ({ ...p, role: e.target.value as UiUserRole }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                    <option value="Admin">Admin</option>
+                    <option value="Analyst">Analyst</option>
+                    <option value="Viewer">Viewer</option>
+                  </select>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button type="button" onClick={() => closeInviteFlow()} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Cancel</button>
+                  <button type="button" disabled={inviteBusy} onClick={() => void submitInvite()} className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">{inviteBusy ? "Creating…" : "Create invite"}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold text-slate-900">Invitation created</h3>
+                <p className="mt-1 text-xs text-amber-700">Copy this URL now — it is shown only once.</p>
+                <input readOnly value={inviteUrlPayload.invite_url} className="mt-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800" />
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button type="button" onClick={() => void copyInviteUrl()} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Copy</button>
+                  <button type="button" onClick={() => closeInviteFlow()} className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white">Done</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 };
-

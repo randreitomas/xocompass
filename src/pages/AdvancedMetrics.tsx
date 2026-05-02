@@ -14,7 +14,12 @@ import {
   YAxis,
 } from "recharts";
 import { useLocation } from "react-router-dom";
-import { apiRoutes, fetchJson } from "../lib/apiRoutes";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import * as dashboardService from "../services/dashboardService";
+import type { components } from "../types/api";
+
+type AdvancedMetricsResponse = components["schemas"]["AdvancedMetricsResponse"];
+type ModelDropdownItem = components["schemas"]["ModelDropdownItem"];
 
 interface MetricCardProps {
   id: string;
@@ -37,60 +42,6 @@ interface PlaceholderPanelProps {
 interface MetricsRouteState {
   selectedModelId?: number;
   selectedModelVersion?: string;
-}
-
-interface BackendModel {
-  id: number;
-  model_name: string;
-  version: string;
-}
-
-interface ModelsResponse {
-  available_models: BackendModel[];
-}
-
-interface CorrelationPoint {
-  lag: number;
-  value: number;
-}
-
-interface AdvancedMetricsResponse {
-  model_params: {
-    /** Non-seasonal (p, d, q). */
-    order: number[];
-    /** Seasonal orders as returned by the API — often 3 terms (P,D,Q) or 4 with explicit period s. */
-    seasonal_order: number[];
-    exogenous_features: string[];
-  };
-  statistics: {
-    rmse: number;
-    mae: number;
-    wmape: number;
-  };
-  statistical_tests: {
-    adf_stat: number;
-    adf_pvalue: number;
-    adf_conclusion: string;
-    ljungbox_stat: number;
-    ljungbox_pvalue: number;
-    ljungbox_conclusion: string;
-    jarquebera_stat: number;
-    jarquebera_pvalue: number;
-    jarquebera_conclusion: string;
-  };
-  charts: {
-    residuals: { fitted: number; residual: number }[];
-    acf: CorrelationPoint[];
-    pacf: CorrelationPoint[];
-    correlation_heatmap: { variable: string; correlation: number }[];
-    validation_graph: {
-      date_label: string;
-      actual: number;
-      forecasted: number;
-      lower_ci: number;
-      upper_ci: number;
-    }[];
-  };
 }
 
 const seasonalOrderHeading = (coefficientCount: number) => {
@@ -623,7 +574,7 @@ export const AdvancedMetrics: React.FC = () => {
   const selectedModelVersion =
     routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
 
-  const [models, setModels] = useState<BackendModel[]>([]);
+  const [models, setModels] = useState<ModelDropdownItem[]>([]);
   const [advancedMetrics, setAdvancedMetrics] =
     useState<AdvancedMetricsResponse | null>(null);
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
@@ -633,7 +584,7 @@ export const AdvancedMetrics: React.FC = () => {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const data = await fetchJson<ModelsResponse>(apiRoutes.models());
+        const data = await dashboardService.getModels();
         setModels(data.available_models ?? []);
       } catch (error) {
         console.error("Unable to load models:", error);
@@ -662,13 +613,11 @@ export const AdvancedMetrics: React.FC = () => {
       try {
         setIsLoading(true);
         setLoadError("");
-        const data = await fetchJson<AdvancedMetricsResponse>(
-          apiRoutes.advancedMetrics(effectiveModelId)
-        );
+        const data = await dashboardService.getAdvancedMetrics(effectiveModelId);
         setAdvancedMetrics(data);
       } catch (error) {
         console.error("Unable to load advanced metrics:", error);
-        setLoadError("Unable to load advanced metrics.");
+        setLoadError(formatApiErrorForUi(error));
       } finally {
         setIsLoading(false);
       }

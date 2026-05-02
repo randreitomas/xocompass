@@ -1,13 +1,16 @@
 import React from "react";
 import { Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import { canManageSaves } from "../../lib/accessControl";
 
 interface HeaderProps {
   pageTitle?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
+export const Header: React.FC<HeaderProps> = ({ pageTitle: _pageTitle }) => {
   const navigate = useNavigate();
+  const { role } = useAuth();
 
   const handleViewSaves = () => {
     navigate("/saves");
@@ -24,13 +27,16 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
       </div>
 
       <div className="flex items-center gap-4">
-        <button
-          onClick={handleViewSaves}
-          className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
-        >
-          <Save className="h-4 w-4" />
-          <span>View Saves</span>
-        </button>
+        {canManageSaves(role) ? (
+          <button
+            type="button"
+            onClick={handleViewSaves}
+            className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+          >
+            <Save className="h-4 w-4" />
+            <span>View Saves</span>
+          </button>
+        ) : null}
       </div>
     </header>
   );

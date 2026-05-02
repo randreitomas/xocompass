@@ -6,13 +6,15 @@ import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
 import "@fontsource/dm-sans/700.css";
 import App from "./App";
+import { AuthProvider } from "./contexts/AuthContext";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );
-

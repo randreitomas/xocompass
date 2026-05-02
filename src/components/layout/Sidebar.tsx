@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   TrendingUp,
@@ -13,7 +13,8 @@ import {
   LogOut,
 } from "lucide-react";
 import sidebarLogoSrc from "../../assets/xocompass-logo.png";
-import { getStoredRole } from "../../lib/accessControl";
+import { useAuth } from "../../contexts/AuthContext";
+import { canManageSaves } from "../../lib/accessControl";
 
 const navItemBase = "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
 const navItemInactive = "text-slate-300 hover:bg-white/10 hover:text-white";
@@ -24,21 +25,16 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
-  const navigate = useNavigate();
-  const role = getStoredRole() ?? "Marketing";
-  const isAdmin = role === "Admin";
-  const canAccessAdvanced = role === "Admin" || role === "Manager" || role === "Analyst";
-  const canAccessSaves = role === "Analyst";
-  const profileEmail = localStorage.getItem("xocompass:userEmail") ?? "user@xocompass.com";
-  const profileName = localStorage.getItem("xocompass:userName") ?? role;
+  const { user, role, logout } = useAuth();
+  const isAdmin = role === "ADMIN";
+  const canAccessSaves = canManageSaves(role);
+  const profileEmail = user?.email ?? "";
+  const profileName = user?.full_name ?? "User";
 
   const handleLogout = () => {
     localStorage.removeItem("xocompass:selectedModelId");
     localStorage.removeItem("xocompass:selectedModelVersion");
-    localStorage.removeItem("xocompass:userRole");
-    localStorage.removeItem("xocompass:userEmail");
-    localStorage.removeItem("xocompass:userName");
-    navigate("/login");
+    void logout();
   };
 
   return (
@@ -95,18 +91,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           {!isCollapsed && <span>Forecast & Actions</span>}
         </NavLink>
 
-        {canAccessAdvanced && (
-          <NavLink
-            to="/advanced"
-            className={({ isActive }) =>
-              `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
-            }
-            title="Advanced Metrics"
-          >
-            <LineChart size={16} />
-            {!isCollapsed && <span>Advanced Metrics</span>}
-          </NavLink>
-        )}
+        <NavLink
+          to="/advanced"
+          className={({ isActive }) =>
+            `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
+          }
+          title="Advanced Metrics"
+        >
+          <LineChart size={16} />
+          {!isCollapsed && <span>Advanced Metrics</span>}
+        </NavLink>
 
         {canAccessSaves && (
           <NavLink
@@ -167,6 +161,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
       </div>
 
       <div className={`border-t border-white/10 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
+        {!isCollapsed && (
+          <p className="mb-3 px-1 text-[10px] leading-snug text-slate-500">
+            Role updates from your admin can take up to 15 minutes to apply. Refresh if a menu or action still looks unavailable.
+          </p>
+        )}
         <div className={`rounded-lg p-2 ${isCollapsed ? "flex justify-center" : "flex items-center gap-3"} hover:bg-white/5`}>
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600/10">
             <User className="h-5 w-5 text-teal-600" />

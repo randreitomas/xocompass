@@ -20,63 +20,20 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { apiRoutes, fetchJson } from "../lib/apiRoutes";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import * as dashboardService from "../services/dashboardService";
+import type { components } from "../types/api";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
 import { SavesModal } from "../components/modals/SavesModal";
 
-interface CriticalForecastWeek {
-  week_start: string;
-  week_end: string;
-  forecasted_volume: number;
-  risk_factor: string;
-  confidence_tier: string;
-}
-
-interface ForecastOutlookResponse {
-  forecasted_bookings_2w: number;
-  highest_forecast_week_date: string;
-  highest_forecast_week_value: number;
-  critical_weeks: CriticalForecastWeek[];
-}
-
-interface ForecastGraphPoint {
-  date: string;
-  actual: number | null;
-  predicted: number | null;
-  lower_bound: number | null;
-  upper_bound: number | null;
-  confidence_tier: string | null;
-}
-
-interface ForecastGraphResponse {
-  data: ForecastGraphPoint[];
-}
-
-interface StrategicAction {
-  priority: string;
-  category: string;
-  action: string;
-  trigger: string;
-}
-
-interface StrategicActionsResponse {
-  actions: StrategicAction[];
-  generated_for_period: string;
-}
+type ForecastOutlookResponse = components["schemas"]["ForecastOutlookResponse"];
+type ForecastGraphResponse = components["schemas"]["ForecastGraphResponse"];
+type StrategicActionsResponse = components["schemas"]["StrategicActionsResponse"];
+type ModelDropdownItem = components["schemas"]["ModelDropdownItem"];
 
 interface MetricsRouteState {
   selectedModelId?: number;
   selectedModelVersion?: string;
-}
-
-interface BackendModel {
-  id: number;
-  model_name: string;
-  version: string;
-}
-
-interface ModelsResponse {
-  available_models: BackendModel[];
 }
 
 interface ForecastActionsProps {
@@ -571,7 +528,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     useState<StrategicActionsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [models, setModels] = useState<BackendModel[]>([]);
+  const [models, setModels] = useState<ModelDropdownItem[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
 
@@ -579,7 +536,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     const fetchModels = async () => {
       try {
         setIsLoadingModels(true);
-        const data = await fetchJson<ModelsResponse>(apiRoutes.models());
+        const data = await dashboardService.getModels();
         setModels(data.available_models ?? []);
       } catch (error) {
         console.error("Unable to load models:", error);
@@ -622,16 +579,16 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         setLoadError("");
 
         const [outlookData, graphData] = await Promise.all([
-          fetchJson<ForecastOutlookResponse>(apiRoutes.forecastKpis(effectiveModelId)),
-          fetchJson<ForecastGraphResponse>(apiRoutes.forecastGraph(effectiveModelId)),
+          dashboardService.getForecastOutlook(effectiveModelId),
+          dashboardService.getForecastGraph(effectiveModelId),
         ]);
 
         setForecastOutlook(outlookData);
         setForecastGraph(graphData);
 
         try {
-          const strategicData = await fetchJson<StrategicActionsResponse>(
-            apiRoutes.strategicActions(effectiveModelId)
+          const strategicData = await dashboardService.getStrategicActions(
+            effectiveModelId
           );
           setStrategicActions(strategicData);
         } catch (strategicError) {
@@ -640,7 +597,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         }
       } catch (error) {
         console.error("Unable to load forecast outlook:", error);
-        setLoadError("Unable to load forecast outlook.");
+        setLoadError(formatApiErrorForUi(error));
         setStrategicActions(null);
       } finally {
         setIsLoading(false);

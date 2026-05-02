@@ -1,49 +1,19 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiUrl } from "../lib/api";
 import { BusinessAnalyticsPage } from "./BusinessAnalyticsPage";
 import { Sidebar } from "../components/layout/Sidebar";
 import { Header } from "../components/layout/Header";
+import { useAuth } from "../contexts/AuthContext";
+import { canUploadOrRetrain } from "../lib/accessControl";
+import { ApiClientError } from "../lib/apiError";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import * as dashboardService from "../services/dashboardService";
+import * as uploadService from "../services/uploadService";
+import * as adminService from "../services/adminService";
+import * as savesService from "../services/savesService";
+import type { components } from "../types/api";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface BackendModel {
-  id: number;
-  model_name: string;
-  version: string;
-  created_at: string;
-  aic_score: number | null;
-  notes: string | null;
-}
-
-interface ModelsResponse {
-  available_models: BackendModel[];
-}
-
-interface UploadResponse {
-  status: string;
-  message: string;
-  new_records: number;
-}
-
-interface UploadErrorResponse {
-  message?: string;
-  error?: { code?: string; message?: string; details?: unknown[] };
-}
-
-interface RetrainResponse {
-  status: string;
-  message: string;
-  new_records_used?: number | null;
-}
-
-// ─── API URLs (unchanged) ─────────────────────────────────────────────────────
-
-const MODELS_API_URL = apiUrl("/api/models");
-const UPLOAD_API_URL = apiUrl("/api/upload");
-const RETRAIN_API_URL = apiUrl("/api/retrain");
-const renameModelApiUrl = (id: number) => apiUrl(`/api/models/${id}/rename`);
-const deleteModelApiUrl = (id: number) => apiUrl(`/api/models/${id}`);
+type ModelDropdownItem = components["schemas"]["ModelDropdownItem"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,10 +84,11 @@ const Toast: React.FC<ToastProps> = ({ message, onDone }) => {
 // ─── SaveCard ─────────────────────────────────────────────────────────────────
 
 interface SaveCardProps {
-  model: BackendModel;
+  model: ModelDropdownItem;
   index: number;
   isActive: boolean;
   isDisabled: boolean;
+  showMutateActions: boolean;
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -129,6 +100,7 @@ const SaveCard: React.FC<SaveCardProps> = ({
   index,
   isActive,
   isDisabled,
+  showMutateActions,
   onOpen,
   onRename,
   onDelete,
@@ -187,6 +159,7 @@ const SaveCard: React.FC<SaveCardProps> = ({
         </button>
 
         {/* Actions */}
+        {showMutateActions ? (
         <div className="flex shrink-0 items-center gap-1 pt-0.5">
           {/* Rename */}
           <button
@@ -232,9 +205,11 @@ const SaveCard: React.FC<SaveCardProps> = ({
             </svg>
           </button>
         </div>
+        ) : null}
       </div>
 
       {/* Inline delete confirmation strip */}
+      {showMutateActions ? (
       <div
         style={{
           display: "grid",
@@ -271,6 +246,7 @@ const SaveCard: React.FC<SaveCardProps> = ({
           </div>
         </div>
       </div>
+      ) : null}
     </div>
   );
 };
@@ -279,12 +255,14 @@ const SaveCard: React.FC<SaveCardProps> = ({
 
 export const SavesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const canTrain = canUploadOrRetrain(role);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const retrainStartedAtRef = useRef<number | null>(null);
 
   // ── Existing state (unchanged semantics) ──
   const [selectedFile, setSelectedFile] = useState<string>("");
-  const [models, setModels] = useState<BackendModel[]>([]);
+  const [models, setModels] = useState<ModelDropdownItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
@@ -302,6 +280,9 @@ export const SavesPage: React.FC = () => {
   const [removingId, setRemovingId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string>("");
   const [toastKey, setToastKey] = useState(0);
+  const [workspaceSessionCount, setWorkspaceSessionCount] = useState<
+    number | null
+  >(null);
 
   // ── Derived: most recent model version ──
   const latestVersion = useMemo(() => {
@@ -314,7 +295,7 @@ export const SavesPage: React.FC = () => {
     setToastKey((k) => k + 1);
   };
 
-  const getDisplayName = (model: BackendModel, index: number) =>
+  const getDisplayName = (model: ModelDropdownItem, index: number) =>
     model.model_name.trim() || model.notes?.trim() || `Save ${index + 1}`;
 
   // ── Filtered + sorted models ──
@@ -350,7 +331,7 @@ export const SavesPage: React.FC = () => {
 
   // ── Date groups ──
   const grouped = useMemo(() => {
-    const groups: Record<string, BackendModel[]> = {};
+    const groups: Record<string, ModelDropdownItem[]> = {};
     const order = ["TODAY", "THIS WEEK", "EARLIER"];
     for (const m of processedModels) {
       const g = getDateGroup(m.created_at);
@@ -362,23 +343,20 @@ export const SavesPage: React.FC = () => {
       .map((g) => ({ label: g, items: groups[g] }));
   }, [processedModels]);
 
-  // ─── Data fetching (unchanged) ─────────────────────────────────────────────
+  // ─── Data fetching ─────────────────────────────────────────────────────────
 
-  const fetchModels = async (): Promise<BackendModel[]> => {
+  const fetchModels = async (): Promise<ModelDropdownItem[]> => {
     try {
       setIsLoading(true);
       setLoadError("");
-      const response = await fetch(MODELS_API_URL);
-      if (!response.ok)
-        throw new Error(`Request failed with status ${response.status}`);
-      const data: ModelsResponse = await response.json();
-      setModels(data.available_models ?? []);
-      return data.available_models ?? [];
+      const data = await dashboardService.getModels();
+      const list = data.available_models ?? [];
+      setModels(list);
+      return list;
     } catch (error) {
       console.error("Unable to fetch models for saves page:", error);
-      setLoadError(
-        "Unable to load saves from backend. Please try again. If this is Vercel, verify backend proxy routing."
-      );
+      setLoadError(formatApiErrorForUi(error));
+      setModels([]);
       return [];
     } finally {
       setIsLoading(false);
@@ -386,8 +364,33 @@ export const SavesPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchModels();
+    void fetchModels();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void savesService
+      .getSessions()
+      .then((r) => {
+        if (!cancelled) setWorkspaceSessionCount(r.sessions.length);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceSessionCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isRetraining) return;
+    const poll = () => {
+      void adminService.getPipelineStatus().catch(() => undefined);
+    };
+    poll();
+    const intervalId = window.setInterval(poll, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [isRetraining]);
 
   useEffect(() => {
     if (!isRetraining) return;
@@ -399,9 +402,9 @@ export const SavesPage: React.FC = () => {
     return () => window.clearInterval(intervalId);
   }, [isRetraining]);
 
-  // ─── Handlers (unchanged logic, UI toast added) ────────────────────────────
+  // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleOpenSave = (model: BackendModel, index: number) => {
+  const handleOpenSave = (model: ModelDropdownItem, index: number) => {
     setActiveModelId(model.id);
     showToast(`Loaded "${getDisplayName(model, index)}"`);
     navigate("/business-analytics", {
@@ -412,7 +415,7 @@ export const SavesPage: React.FC = () => {
     });
   };
 
-  const handleRenameSave = async (model: BackendModel, index: number) => {
+  const handleRenameSave = async (model: ModelDropdownItem, index: number) => {
     const currentName = getDisplayName(model, index);
     const proposed = window.prompt("Rename save", currentName);
     if (proposed === null) return;
@@ -421,24 +424,20 @@ export const SavesPage: React.FC = () => {
 
     try {
       setIsMutatingSave(true);
-      const response = await fetch(renameModelApiUrl(model.id), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_model_name: nextName }),
+      await dashboardService.renameModel(model.id, {
+        new_model_name: nextName,
       });
-      if (!response.ok)
-        throw new Error(`Rename failed with status ${response.status}`);
       await fetchModels();
       showToast("Save renamed.");
     } catch (error) {
       console.error("Rename save failed:", error);
-      showToast("Unable to rename save. Please try again.");
+      showToast(formatApiErrorForUi(error));
     } finally {
       setIsMutatingSave(false);
     }
   };
 
-  const handleDeleteSave = async (model: BackendModel, index: number) => {
+  const handleDeleteSave = async (model: ModelDropdownItem, index: number) => {
     const name = getDisplayName(model, index);
     try {
       setRemovingId(model.id);
@@ -447,18 +446,14 @@ export const SavesPage: React.FC = () => {
       // Let animation play
       await new Promise((r) => window.setTimeout(r, 250));
 
-      const response = await fetch(deleteModelApiUrl(model.id), {
-        method: "DELETE",
-      });
-      if (!response.ok)
-        throw new Error(`Delete failed with status ${response.status}`);
+      await dashboardService.deleteModel(model.id);
 
       if (activeModelId === model.id) setActiveModelId(null);
       await fetchModels();
       showToast(`Deleted "${name}"`);
     } catch (error) {
       console.error("Delete save failed:", error);
-      showToast("Unable to delete save. Please try again.");
+      showToast(formatApiErrorForUi(error));
     } finally {
       setRemovingId(null);
       setIsMutatingSave(false);
@@ -481,28 +476,7 @@ export const SavesPage: React.FC = () => {
     setSelectedFile(file.name);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(UPLOAD_API_URL, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        let errorMessage =
-          "Upload failed. Please confirm the file format and try again.";
-        try {
-          const errorData = (await response.json()) as UploadErrorResponse;
-          if (errorData?.error?.message) errorMessage = errorData.error.message;
-          else if (errorData?.message) errorMessage = errorData.message;
-        } catch {
-          errorMessage = `Upload failed with status ${response.status}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const result: UploadResponse = await response.json();
+      const result = await uploadService.uploadCSV(file);
       setUploadStatus(
         `Upload complete. ${result.message} New records: ${result.new_records}.`
       );
@@ -511,9 +485,11 @@ export const SavesPage: React.FC = () => {
     } catch (error: unknown) {
       console.error("Dataset upload failed:", error);
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "An unexpected error occurred during upload.";
+        error instanceof ApiClientError
+          ? formatApiErrorForUi(error)
+          : error instanceof Error
+            ? error.message
+            : "An unexpected error occurred during upload.";
       setUploadStatus(errorMessage);
       setIsUploadReady(false);
     } finally {
@@ -529,7 +505,7 @@ export const SavesPage: React.FC = () => {
       retrainStartedAtRef.current = Date.now();
       setRetrainStatus("Retraining pipeline started...");
 
-      const retrainPayload = {
+      const retrainPayload: components["schemas"]["RetrainRequest"] = {
         time_period: "30 Days",
         target_variable: "Booking Date",
         external_factors: [
@@ -542,16 +518,7 @@ export const SavesPage: React.FC = () => {
         model_selection: "SARIMAX",
       };
 
-      const retrainResponse = await fetch(RETRAIN_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retrainPayload),
-      });
-
-      if (!retrainResponse.ok)
-        throw new Error(`Retrain failed with status ${retrainResponse.status}`);
-
-      const retrainResult: RetrainResponse = await retrainResponse.json();
+      const retrainResult = await uploadService.triggerRetrain(retrainPayload);
       setRetrainStatus(
         `${retrainResult.message} Fetching updated model registry...`
       );
@@ -565,13 +532,10 @@ export const SavesPage: React.FC = () => {
         `Model ${latestModel.version} (ID ${latestModel.id}) ready. Validating dashboard outputs...`
       );
 
-      const [dashboardResponse, advancedResponse] = await Promise.all([
-        fetch(apiUrl(`/api/dashboard-stats/${latestModel.id}`)),
-        fetch(apiUrl(`/api/advanced-metrics/${latestModel.id}`)),
+      await Promise.all([
+        dashboardService.getDashboardStats(latestModel.id),
+        dashboardService.getAdvancedMetrics(latestModel.id),
       ]);
-
-      if (!dashboardResponse.ok || !advancedResponse.ok)
-        throw new Error("Model outputs are not ready yet.");
 
       localStorage.setItem(
         "xocompass:selectedModelId",
@@ -583,7 +547,7 @@ export const SavesPage: React.FC = () => {
       );
 
       const defaultName = `Model ${latestModel.version} (ID ${latestModel.id})`;
-      const getBackendSaveName = (m: BackendModel) =>
+      const getBackendSaveName = (m: ModelDropdownItem) =>
         m.model_name.trim() || m.notes?.trim() || null;
       const chosenName = window
         .prompt("Name this save", defaultName)
@@ -591,10 +555,8 @@ export const SavesPage: React.FC = () => {
 
       if (chosenName && chosenName !== getBackendSaveName(latestModel)) {
         try {
-          await fetch(renameModelApiUrl(latestModel.id), {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ new_model_name: chosenName }),
+          await dashboardService.renameModel(latestModel.id, {
+            new_model_name: chosenName,
           });
           await fetchModels();
         } catch (error) {
@@ -618,9 +580,7 @@ export const SavesPage: React.FC = () => {
       }, 1200);
     } catch (error) {
       console.error("Retrain pipeline failed:", error);
-      setRetrainStatus(
-        "Retrain did not complete successfully. Please try again in a moment."
-      );
+      setRetrainStatus(formatApiErrorForUi(error));
     } finally {
       setIsRetraining(false);
       retrainStartedAtRef.current = null;
@@ -660,7 +620,14 @@ export const SavesPage: React.FC = () => {
               Saves
             </h1>
             <p className="mt-0.5 text-sm text-slate-500">
-              {models.length} session{models.length !== 1 ? "s" : ""}
+              {models.length} model save{models.length !== 1 ? "s" : ""}
+              {workspaceSessionCount != null ? (
+                <>
+                  <span className="mx-1.5 text-slate-300">·</span>
+                  {workspaceSessionCount} workspace session
+                  {workspaceSessionCount !== 1 ? "s" : ""}
+                </>
+              ) : null}
               {latestVersion && (
                 <>
                   <span className="mx-1.5 text-slate-300">·</span>
@@ -670,6 +637,7 @@ export const SavesPage: React.FC = () => {
             </p>
           </div>
 
+          {canTrain ? (
           <button
             type="button"
             onClick={handleNewSessionClick}
@@ -690,6 +658,7 @@ export const SavesPage: React.FC = () => {
             </svg>
             New session
           </button>
+          ) : null}
         </div>
 
         {/* ── Controls row ── */}
@@ -767,6 +736,7 @@ export const SavesPage: React.FC = () => {
                       index={models.indexOf(model)}
                       isActive={activeModelId === model.id}
                       isDisabled={isDisabled}
+                      showMutateActions={canTrain}
                       onOpen={() => handleOpenSave(model, models.indexOf(model))}
                       onRename={() =>
                         handleRenameSave(model, models.indexOf(model))
@@ -794,7 +764,7 @@ export const SavesPage: React.FC = () => {
         )}
 
         {/* ── Retrain panel ── */}
-        {isUploadReady && (
+        {canTrain && isUploadReady && (
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
             <p className="text-sm font-semibold text-emerald-700">
               Dataset ready. Start retraining?

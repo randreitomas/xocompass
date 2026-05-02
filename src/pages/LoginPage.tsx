@@ -1,22 +1,43 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
-import { AppRole } from "../lib/accessControl";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ApiClientError } from "../lib/apiError";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import { useAuth } from "../contexts/AuthContext";
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedRole, setSelectedRole] = React.useState<AppRole>("Manager");
+  const location = useLocation();
+  const { login, user, isLoading } = useAuth();
   const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    localStorage.setItem("xocompass:userRole", selectedRole);
-    localStorage.setItem("xocompass:userEmail", email || `${selectedRole.toLowerCase()}@xocompass.com`);
-    localStorage.setItem("xocompass:userName", selectedRole);
-    if (selectedRole === "Analyst") {
-      navigate("/saves");
-      return;
+  const from =
+    (location.state as { from?: string } | null)?.from ?? "/business-analytics";
+
+  React.useEffect(() => {
+    if (!isLoading && user) {
+      navigate(from, { replace: true });
     }
-    navigate("/business-analytics");
+  }, [user, isLoading, navigate, from]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await login(email.trim(), password);
+      navigate(from, { replace: true });
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setError(formatApiErrorForUi(err));
+      } else {
+        setError(formatApiErrorForUi(err));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -32,11 +53,11 @@ export const LoginPage: React.FC = () => {
               Realtime POS & Travel Demand Intelligence
             </div>
             <h1 className="text-3xl font-semibold leading-snug">
-            Make faster, smarter decisions for {" "}
+              Make faster, smarter decisions for{" "}
               <span className="text-teal-300">KJS Travel & Tours</span>.
             </h1>
             <p className="mt-4 text-sm text-slate-200/80">
-            XoCompass turns raw POS and travel demand data into clear, actionable intelligence — so your team spends less time on reports and more time on strategy.
+              XoCompass turns raw POS and travel demand data into clear, actionable intelligence — so your team spends less time on reports and more time on strategy.
             </p>
           </div>
         </div>
@@ -58,7 +79,7 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
               <div>
                 <label
                   htmlFor="email"
@@ -74,24 +95,8 @@ export const LoginPage: React.FC = () => {
                   onChange={(event) => setEmail(event.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none ring-teal-500/0 transition focus:bg-white focus:ring-2"
                   placeholder="you@kjs-travel.com"
+                  autoComplete="email"
                 />
-              </div>
-
-              <div>
-                <label htmlFor="role" className="text-xs font-medium text-slate-700">
-                  Role
-                </label>
-                <select
-                  id="role"
-                  value={selectedRole}
-                  onChange={(event) => setSelectedRole(event.target.value as AppRole)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none ring-teal-500/0 transition focus:bg-white focus:ring-2"
-                >
-                  <option value="Admin">Admin</option>
-                  <option value="Manager">Manager/Owner</option>
-                  <option value="Analyst">Analyst</option>
-                  <option value="Marketing">Marketing</option>
-                </select>
               </div>
 
               <div>
@@ -113,22 +118,41 @@ export const LoginPage: React.FC = () => {
                   id="password"
                   type="password"
                   required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none ring-teal-500/0 transition focus:bg-white focus:ring-2"
                   placeholder="••••••••"
+                  autoComplete="current-password"
                 />
               </div>
 
+              {error ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </p>
+              ) : null}
+
               <button
                 type="submit"
-                className="mt-2 w-full rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+                disabled={isSubmitting || isLoading}
+                className="mt-2 w-full rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Login
+                {isSubmitting ? "Signing in…" : "Login"}
               </button>
             </form>
+
+            <p className="mt-6 text-center text-xs text-slate-500">
+              Have an invite?{" "}
+              <Link
+                to="/register"
+                className="font-semibold text-teal-600 hover:text-teal-700"
+              >
+                Complete registration
+              </Link>
+            </p>
           </div>
         </div>
       </div>
     </div>
   );
 };
-

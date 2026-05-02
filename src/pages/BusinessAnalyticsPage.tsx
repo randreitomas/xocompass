@@ -8,7 +8,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiRoutes, fetchJson } from "../lib/apiRoutes";
+import { formatApiErrorForUi } from "../lib/formatApiError";
+import * as dashboardService from "../services/dashboardService";
+import type { components } from "../types/api";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
 import { SavesModal } from "../components/modals/SavesModal";
 import {
@@ -18,78 +20,12 @@ import {
   RouteVolume,
 } from "../components/dashboard/tabs/BusinessAnalyticsTab";
 
-interface BookingsByYearPoint {
-  year: number | string;
-  bookings: number;
-}
-
-interface AirlineCount {
-  airline_code: string;
-  count: number;
-  pct: number;
-}
-
-interface LeadTimeBucket {
-  bucket: string;
-  count: number;
-}
-
-interface HolidayBreakdown {
-  holiday_weeks: number;
-  non_holiday_weeks: number;
-  holiday_pct: number;
-}
-
-interface BusinessAnalyticsResponse {
-  generated_at: string;
-  total_transaction_count: number;
-  total_weekly_records: number;
-  total_revenue: number | null;
-  avg_weekly_bookings: number;
-  peak_week_date: string;
-  peak_week_bookings: number;
-  growth_rate: number;
-  avg_lead_time_days: number | null;
-  date_coverage: {
-    start_date: string;
-    end_date: string;
-    span_weeks: number;
-  };
-  bookings_by_year: BookingsByYearPoint[];
-  bookings_by_month: { month: string; bookings: number }[];
-  revenue_by_month?: { month: string; revenue: number }[];
-  /** Pre-aggregated yearly totals; preferred source for Net Revenue “By year” in Overall view. */
-  revenue_by_year?: { year: string; revenue: number }[];
-  top_airlines?: AirlineCount[];
-  lead_time_distribution?: LeadTimeBucket[];
-  top_routes?: { route: string; count: number; pct: number }[];
-  holiday_breakdown: HolidayBreakdown;
-  data_quality?: {
-    total_rows: number;
-    duplicate_rows: number;
-    missing_route: number;
-    missing_airline: number;
-    missing_travel_date: number;
-    invalid_travel_date: number;
-    missing_revenue: number;
-    quality_score_pct: number;
-  } | null;
-  available_years?: string[];
-}
+type BusinessAnalyticsResponse = components["schemas"]["BusinessAnalyticsResponse"];
+type ModelDropdownItem = components["schemas"]["ModelDropdownItem"];
 
 interface MetricsRouteState {
   selectedModelId?: number;
   selectedModelVersion?: string;
-}
-
-interface BackendModel {
-  id: number;
-  model_name: string;
-  version: string;
-}
-
-interface ModelsResponse {
-  available_models: BackendModel[];
 }
 
 interface BusinessAnalyticsPageProps {
@@ -201,7 +137,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     useState<BusinessAnalyticsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [models, setModels] = useState<BackendModel[]>([]);
+  const [models, setModels] = useState<ModelDropdownItem[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [selectedYearView, setSelectedYearView] = useState<string>("overall");
   const [netRevenueGranularity, setNetRevenueGranularity] = useState<"month" | "year">("month");
@@ -218,7 +154,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     const fetchModels = async () => {
       try {
         setIsLoadingModels(true);
-        const data = await fetchJson<ModelsResponse>(apiRoutes.models());
+        const data = await dashboardService.getModels();
         setModels(data.available_models ?? []);
       } catch (error) {
         console.error("Unable to load models:", error);
@@ -258,8 +194,9 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         setIsLoading(true);
         setLoadError("");
 
-        const data = await fetchJson<BusinessAnalyticsResponse>(
-          apiRoutes.businessAnalytics(effectiveModelId, selectedYearView)
+        const data = await dashboardService.getBusinessAnalytics(
+          effectiveModelId,
+          selectedYearView
         );
         setBusinessAnalytics(data);
         if (data.available_years?.length) {
@@ -274,7 +211,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         }
       } catch (error) {
         console.error("Unable to load business analytics:", error);
-        setLoadError("Unable to load business analytics.");
+        setLoadError(formatApiErrorForUi(error));
       } finally {
         setIsLoading(false);
       }
@@ -291,8 +228,9 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
 
     const fetchOverallBusinessAnalytics = async () => {
       try {
-        const data = await fetchJson<BusinessAnalyticsResponse>(
-          apiRoutes.businessAnalytics(effectiveModelId, "overall")
+        const data = await dashboardService.getBusinessAnalytics(
+          effectiveModelId,
+          "overall"
         );
         setOverallBusinessAnalytics(data);
       } catch (error) {
@@ -530,6 +468,13 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
           {loadError} Showing fallback data where needed.
         </p>
       )}
+
+      {isLoadingModels && !isBackgroundPreview ? (
+        <p className="mt-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-600 shadow-sm">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-teal-600 border-t-transparent align-middle" />{" "}
+          Loading model registry…
+        </p>
+      ) : null}
 
       <div className="mt-6 space-y-8">
       {shouldShowColdStart ? (
