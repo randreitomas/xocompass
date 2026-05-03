@@ -15,6 +15,7 @@ type UpdateSettingRequest = components["schemas"]["UpdateSettingRequest"];
 type UserStatusResponse = components["schemas"]["UserStatusResponse"];
 type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
 type AdminUserDetailResponse = components["schemas"]["AdminUserDetailResponse"];
+type AdminInitiateResetResponse = components["schemas"]["AdminInitiateResetResponse"];
 
 export interface ListUsersParams {
   page?: number;
@@ -74,6 +75,15 @@ export async function patchUser(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }
+  );
+}
+
+export async function initiateUserPasswordReset(
+  userId: string
+): Promise<AdminInitiateResetResponse> {
+  return apiRequest<AdminInitiateResetResponse>(
+    `/admin/users/${encodeURIComponent(userId)}/reset-password`,
+    { method: "POST" }
   );
 }
 

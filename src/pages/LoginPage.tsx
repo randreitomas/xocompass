@@ -13,8 +13,14 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const from =
-    (location.state as { from?: string } | null)?.from ?? "/business-analytics";
+  const state = location.state as {
+    from?: string;
+    resetNotice?: string;
+  } | null;
+
+  const from = state?.from ?? "/business-analytics";
+
+  const resetNotice = state?.resetNotice ?? "";
 
   React.useEffect(() => {
     if (!isLoading && user) {
@@ -80,6 +86,11 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+              {resetNotice ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  {resetNotice}
+                </p>
+              ) : null}
               <div>
                 <label
                   htmlFor="email"
@@ -107,12 +118,12 @@ export const LoginPage: React.FC = () => {
                   >
                     Password
                   </label>
-                  <button
-                    type="button"
+                  <Link
+                    to="/forgot-password"
                     className="text-xs font-medium text-teal-600 hover:text-teal-700"
                   >
                     Forgot password?
-                  </button>
+                  </Link>
                 </div>
                 <input
                   id="password"

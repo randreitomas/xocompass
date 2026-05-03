@@ -13,6 +13,7 @@ type AuditLogItem = components["schemas"]["AuditLogItem"];
 type SystemOverviewResponse = components["schemas"]["SystemOverviewResponse"];
 type PipelineStatusResponse = components["schemas"]["PipelineStatusResponse"];
 type CreateInvitationResponse = components["schemas"]["CreateInvitationResponse"];
+type AdminInitiateResetResponse = components["schemas"]["AdminInitiateResetResponse"];
 
 interface ModuleConfig {
   id: string;
@@ -113,6 +114,12 @@ export const AdminPage: React.FC = () => {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteUrlPayload, setInviteUrlPayload] = useState<CreateInvitationResponse | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+
+  const [resetPayload, setResetPayload] = useState<AdminInitiateResetResponse | null>(
+    null
+  );
+  const [resetCopied, setResetCopied] = useState(false);
+  const [resetBusyId, setResetBusyId] = useState<string | null>(null);
 
   const [roleEditUser, setRoleEditUser] = useState<AdminUserListItem | null>(
     null
@@ -352,6 +359,41 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const initiateAdminPasswordReset = async (u: AdminUserListItem) => {
+    setUsersError("");
+    setResetBusyId(u.id);
+    try {
+      const res = await adminService.initiateUserPasswordReset(u.id);
+      setResetPayload(res);
+      setResetCopied(false);
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    } finally {
+      setResetBusyId(null);
+    }
+  };
+
+  const closeResetModal = () => {
+    if (resetPayload && !resetCopied) {
+      const ok = window.confirm(
+        "Dismiss without copying? Share this reset link with the user out-of-band; it expires in about 30 minutes."
+      );
+      if (!ok) return;
+    }
+    setResetPayload(null);
+    setResetCopied(false);
+  };
+
+  const copyResetUrl = async () => {
+    if (!resetPayload?.reset_url) return;
+    try {
+      await navigator.clipboard.writeText(resetPayload.reset_url);
+      setResetCopied(true);
+    } catch {
+      setResetCopied(false);
+    }
+  };
+
   const handleSaveConfig = async () => {
     setConfigSaving(true);
     setConfigMessage("");
@@ -474,8 +516,13 @@ export const AdminPage: React.FC = () => {
                         >
                           Delete
                         </button>
-                        <button type="button" className="rounded-md border border-slate-200 px-2 py-1 text-xs opacity-50" disabled title="Not available via API">
-                          Reset Password
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                          disabled={resetBusyId === u.id}
+                          onClick={() => void initiateAdminPasswordReset(u)}
+                        >
+                          {resetBusyId === u.id ? "…" : "Reset Password"}
                         </button>
                       </div>
                     </td>
@@ -701,6 +748,40 @@ export const AdminPage: React.FC = () => {
                 className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 {roleEditBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetPayload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900">Password reset link</h3>
+            <p className="mt-1 text-xs text-slate-600">
+              For <span className="font-medium text-slate-800">{resetPayload.email}</span>. Send this URL securely (Slack, in person). Expires{" "}
+              {formatLogin(resetPayload.expires_at)}.
+            </p>
+            <p className="mt-2 text-xs text-amber-700">Copy now — treat like a one-time secret.</p>
+            <input
+              readOnly
+              value={resetPayload.reset_url}
+              className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800"
+            />
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void copyResetUrl()}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={() => closeResetModal()}
+                className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Done
               </button>
             </div>
           </div>

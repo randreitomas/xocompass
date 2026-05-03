@@ -114,6 +114,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a password reset link (generic success; no account enumeration). */
+        post: operations["forgot_password_auth_forgot_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume reset token and set a new password (no auto-login). */
+        post: operations["reset_password_auth_reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -178,6 +212,23 @@ export interface paths {
         put?: never;
         /** Deactivate a user. Revokes all their refresh tokens. */
         post: operations["deactivate_user_admin_users__user_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin-initiated reset; returns one-time reset URL (~30m TTL). */
+        post: operations["admin_reset_password_admin_users__user_id__reset_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -789,6 +840,29 @@ export interface components {
             page_size: number;
             /** Total */
             total: number;
+        };
+        /**
+         * AdminInitiateResetResponse
+         * @description Admin receives a hand-off reset URL for the target user.
+         */
+        AdminInitiateResetResponse: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Reset Url */
+            reset_url: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
         };
         /** AdvancedCharts */
         AdvancedCharts: {
@@ -1540,6 +1614,28 @@ export interface components {
              */
             refresh_expires_at: string;
         };
+        /** ForgotPasswordRequest */
+        ForgotPasswordRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /**
+         * ForgotPasswordResponse
+         * @description Generic response to prevent email enumeration.
+         */
+        ForgotPasswordResponse: {
+            /**
+             * Status
+             * @default ok
+             * @constant
+             */
+            status?: "ok";
+            /** Message */
+            message?: string;
+        };
         /**
          * RegisterRequest
          * @description Submitted when an invitee clicks the invite URL and sets their password.
@@ -1554,6 +1650,29 @@ export interface components {
             full_name: string;
             /** Password */
             password: string;
+        };
+        /** ResetPasswordRequest */
+        ResetPasswordRequest: {
+            /** Token */
+            token: string;
+            /** New Password */
+            new_password: string;
+        };
+        /** ResetPasswordResponse */
+        ResetPasswordResponse: {
+            /**
+             * Status
+             * @default ok
+             * @constant
+             */
+            status?: "ok";
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Message */
+            message?: string;
         };
         /** ResidualPoint */
         ResidualPoint: {
@@ -1904,6 +2023,72 @@ export interface operations {
             };
         };
     };
+    forgot_password_auth_forgot_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForgotPasswordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_auth_reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetPasswordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_auth_me_get: {
         parameters: {
             query?: never;
@@ -2103,6 +2288,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_reset_password_admin_users__user_id__reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInitiateResetResponse"];
                 };
             };
             /** @description Validation Error */
