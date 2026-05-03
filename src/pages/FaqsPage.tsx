@@ -6,40 +6,91 @@ interface FaqItem {
 }
 
 const groups: Record<string, FaqItem[]> = {
-  "Getting Started": [
+  "Getting started": [
     {
-      question: "What data does XoCompass use?",
+      question: "What is XoCompass?",
       answer:
-        "XoCompass uses KJS POS and travel data. You can manage sessions from the header using “View Saves” to switch saves or “Exit Save” to return to login. Data is used to build unified time series for demand, revenue, and operations.",
+        "XoCompass is KJS International Travel and Tours’ analytics workspace for POS and travel demand. It turns booking and operational data into dashboards for booking trends, revenue-style aggregates where available, forecast views, and (for authorised roles) model diagnostics—all scoped to the dataset attached to your active save.",
     },
     {
-      question: "How often is the data refreshed?",
+      question: "How do I log in for the first time?",
       answer:
-        "You can refresh data by re-uploading your CSV from the header. By default, data is refreshed nightly; high-velocity endpoints (POS, online bookings) can be configured for near real-time streaming.",
-    },
-  ],
-  "Understanding Metrics": [
-    {
-      question: "How is Growth % calculated?",
-      answer:
-        "Growth is calculated as the blended year-over-year rate across bookings and revenue, adjusted for seasonality and calendar effects. It appears on the Business Analytics Dashboard in the Data Overview.",
+        "New colleagues receive an invitation from an administrator. Open the invite link, complete registration with your full name and password on the registration page, and you will be signed in automatically. Existing users sign in from the login page using their work email.",
     },
     {
-      question: "What do WMAPE, RMSE, and MAE mean?",
+      question: "What if I forgot my password?",
       answer:
-        "WMAPE (Weighted Mean Absolute Percentage Error) measures percentage accuracy; lower is better and a target under 5% is typical. RMSE (Root Mean Squared Error) and MAE (Mean Absolute Error) measure absolute error magnitude—lower is better. These evaluation metrics are shown on the Advanced Analytics dashboard.",
+        "On the login screen, use Forgot password and enter your email. For security, the message is the same whether or not an account exists. If your organisation uses admin-assisted resets, an Admin can also generate a one-time reset link from Admin Console → User & Access Management.",
     },
   ],
-  "Advanced Analytics": [
+  "Data, saves & uploads": [
     {
-      question: "Which forecasting models are supported?",
+      question: "What data powers the dashboards?",
       answer:
-        "XoCompass supports ARIMA, SARIMA, and SARIMAX families, with exogenous factors such as marketing spend and macro indicators. Model performance is reviewed in the Advanced Analytics dashboard.",
+        "Charts and KPIs use the booking dataset linked to your currently selected model save (time ranges, aggregates, and forecasts are derived from that uploaded history). If no save is selected or data is missing, dashboards may prompt you to choose or upload data via Saves.",
     },
     {
-      question: "Can I export technical diagnostics?",
+      question: "Who can open Saves and upload CSV files?",
       answer:
-        "Technical diagnostics are available in the Advanced Analytics dashboard, including model parameters (ARIMA order, seasonal order, exogenous features), residual behavior, and statistical tests (ADF, Ljung-Box, Jarque-Bera).",
+        "Analyst and Admin roles can use View Saves in the top-right header to open the Saves page: browse model saves, upload a KJS booking CSV, rename or delete saves, and trigger retraining when the workflow allows it. Viewers do not have Saves or upload access.",
+    },
+    {
+      question: "How do I refresh or replace my dataset?",
+      answer:
+        "Go to Saves (header → View Saves), pick or create the save you want to update, and upload a new CSV following the same expectations as your pipeline (columns and formats your administrator documents). After processing, switch back to Business Analytics or Forecast & Actions and ensure the correct save is active.",
+    },
+  ],
+  "Dashboards": [
+    {
+      question: "What is the Business Analytics dashboard for?",
+      answer:
+        "It summarises historical demand and operational KPIs: record counts, revenue-style totals where configured, date coverage, lead-time views, and breakdowns such as bookings over time and airline mix. Use it for executive snapshots and operational monitoring.",
+    },
+    {
+      question: "What is Forecast & Actions?",
+      answer:
+        "This area focuses on short-horizon demand outlook: forecasted volumes, comparison to recent actuals where shown, context such as holidays or weather-related flags when modeled, and lists that highlight higher-risk forecast weeks so teams can plan capacity or campaigns.",
+    },
+    {
+      question: "What is Advanced Metrics and why don’t I see it?",
+      answer:
+        "Advanced Metrics surfaces model-evaluation detail: error metrics (e.g. WMAPE, MAE, RMSE), residual and diagnostic plots, and SARIMAX-oriented metadata (orders, exogenous variables). Only Analyst and Admin roles see it in the sidebar and can open the route; Viewers use Business Analytics and Forecast & Actions only.",
+    },
+  ],
+  "Roles & access": [
+    {
+      question: "What is the difference between Viewer, Analyst, and Admin?",
+      answer:
+        "Viewer: read Business Analytics and Forecast & Actions, plus FAQs. Analyst: same dashboards plus Saves (uploads, model saves) and Advanced Metrics. Admin: everything Analyst has, plus Admin Console for users, invitations, password resets, audit logs, and platform configuration exposed there.",
+    },
+    {
+      question: "I was promoted but menus didn’t change.",
+      answer:
+        "JWT and cached sessions can lag briefly. Sign out and sign back in, or wait up to several minutes as noted in the sidebar. If access still looks wrong, contact your administrator to confirm the role change in Admin Console.",
+    },
+  ],
+  "Administration": [
+    {
+      question: "How does user management work?",
+      answer:
+        "Admins invite users by email and role from User & Access Management. Invites expose a one-time registration URL. Admins can activate or deactivate accounts, edit roles, initiate password-reset links, and soft-delete users when policy allows; deleted rows may appear as anonymised placeholders unless Show deleted users is enabled.",
+    },
+    {
+      question: "Where can I review who did what?",
+      answer:
+        "Audit Logs under Admin Console lists timestamped actions (who, action type, module, success or failure) with filters and CSV export for governance and troubleshooting.",
+    },
+  ],
+  "Models & metrics glossary": [
+    {
+      question: "What do WMAPE, MAE, and RMSE mean?",
+      answer:
+        "WMAPE (weighted mean absolute percentage error) expresses typical percentage error; lower is better. MAE (mean absolute error) is average absolute mistake in the same units as bookings. RMSE penalises large misses more heavily than MAE. Together they summarise forecast fit on Advanced Metrics.",
+    },
+    {
+      question: "What is SARIMAX in this product?",
+      answer:
+        "SARIMAX refers to seasonal models that capture trends and seasonality in booking series and can include exogenous inputs (e.g. holidays, long weekends, storm flags) when configured. Orders and tests shown on Advanced Metrics describe the fitted model your pipeline selected.",
     },
   ],
 };
@@ -64,12 +115,12 @@ export const FaqsPage: React.FC = () => {
                 <span className="font-medium text-slate-800">
                   {item.question}
                 </span>
-                <span className="ml-4 text-sm text-slate-500">
+                <span className="ml-4 shrink-0 text-sm text-slate-500">
                   {open ? "Hide" : "Show"}
                 </span>
               </button>
               {open && (
-                <div className="border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
+                <div className="border-t border-slate-200 px-4 py-3 text-sm leading-relaxed text-slate-600">
                   {item.answer}
                 </div>
               )}
@@ -81,15 +132,15 @@ export const FaqsPage: React.FC = () => {
   );
 
   return (
-    <div className="relative flex justify-center px-4 bg-slate-100 min-h-full -m-8 p-8">
+    <div className="relative flex min-h-full justify-center bg-slate-100 -m-8 p-8">
       <div className="w-full max-w-3xl space-y-6 py-6">
         <div className="space-y-1">
           <h1 className="text-lg font-semibold text-slate-900">
-            FAQs &amp; Product Guidance
+            FAQs &amp; product guidance
           </h1>
           <p className="text-sm text-slate-500">
-            Learn how to interpret XoCompass metrics and get the most value from
-            your KJS data.
+            How XoCompass fits KJS workflows: dashboards, saves, roles, and
+            administration.
           </p>
         </div>
 
@@ -105,7 +156,8 @@ export const FaqsPage: React.FC = () => {
           Support
         </p>
         <p className="mt-1 text-sm text-slate-700">
-          Need help with an analysis or integration?
+          For access issues or data questions, contact your KJS administrator or
+          internal IT.
         </p>
         <p className="mt-2 font-mono text-sm text-teal-700">
           support@xocompass.com
@@ -114,4 +166,3 @@ export const FaqsPage: React.FC = () => {
     </div>
   );
 };
-
