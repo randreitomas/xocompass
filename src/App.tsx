@@ -38,7 +38,14 @@ const App: React.FC = () => {
       >
         <Route path="/business-analytics" element={<BusinessAnalyticsPage />} />
         <Route path="/forecast-actions" element={<ForecastActions />} />
-        <Route path="/advanced" element={<AdvancedMetrics />} />
+        <Route
+          path="/advanced"
+          element={
+            <ProtectedRoute requiredRole="ANALYST">
+              <AdvancedMetrics />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/admin" element={
           <ProtectedRoute requiredRole="ADMIN">
             <AdminPage />

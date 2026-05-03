@@ -5,7 +5,6 @@ import {
   TrendingUp,
   LineChart,
   HelpCircle,
-  Database,
   ShieldCheck,
   User,
   ChevronLeft,
@@ -14,7 +13,7 @@ import {
 } from "lucide-react";
 import sidebarLogoSrc from "../../assets/xocompass-logo.png";
 import { useAuth } from "../../contexts/AuthContext";
-import { canManageSaves } from "../../lib/accessControl";
+import { meetsMinimumRole } from "../../lib/accessControl";
 
 const navItemBase = "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
 const navItemInactive = "text-slate-300 hover:bg-white/10 hover:text-white";
@@ -27,7 +26,8 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
   const { user, role, logout } = useAuth();
   const isAdmin = role === "ADMIN";
-  const canAccessSaves = canManageSaves(role);
+  const canAccessAdvancedMetrics =
+    role !== null && meetsMinimumRole(role, "ANALYST");
   const profileEmail = user?.email ?? "";
   const profileName = user?.full_name ?? "User";
 
@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r border-white/10 bg-[#141316] transition-all duration-200 ${
+      className={`fixed inset-y-0 left-0 z-20 flex min-h-0 flex-col overflow-hidden border-r border-white/10 bg-[#141316] transition-all duration-200 ${
         isCollapsed ? "w-20" : "w-64"
       }`}
     >
@@ -62,7 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         </div>
       </div>
 
-      <nav className={`flex-1 space-y-1 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
+      <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
         {!isCollapsed && (
           <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
             Main Menu
@@ -91,29 +91,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
           {!isCollapsed && <span>Forecast & Actions</span>}
         </NavLink>
 
-        <NavLink
-          to="/advanced"
-          className={({ isActive }) =>
-            `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
-          }
-          title="Advanced Metrics"
-        >
-          <LineChart size={16} />
-          {!isCollapsed && <span>Advanced Metrics</span>}
-        </NavLink>
-
-        {canAccessSaves && (
+        {canAccessAdvancedMetrics ? (
           <NavLink
-            to="/saves"
+            to="/advanced"
             className={({ isActive }) =>
               `${navItemBase} ${isCollapsed ? "justify-center gap-0 px-2" : "gap-3"} ${isActive ? navItemActive : navItemInactive}`
             }
-            title="Saves"
+            title="Advanced Metrics"
           >
-            <Database size={16} />
-            {!isCollapsed && <span>Saves</span>}
+            <LineChart size={16} />
+            {!isCollapsed && <span>Advanced Metrics</span>}
           </NavLink>
-        )}
+        ) : null}
 
         <NavLink
           to="/faqs"
@@ -160,28 +149,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         </button>
       </div>
 
-      <div className={`border-t border-white/10 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
+      <div className={`min-h-0 shrink-0 border-t border-white/10 py-4 ${isCollapsed ? "px-2" : "px-4"}`}>
         {!isCollapsed && (
           <p className="mb-3 px-1 text-[10px] leading-snug text-slate-500">
             Role updates from your admin can take up to 15 minutes to apply. Refresh if a menu or action still looks unavailable.
           </p>
         )}
-        <div className={`rounded-lg p-2 ${isCollapsed ? "flex justify-center" : "flex items-center gap-3"} hover:bg-white/5`}>
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600/10">
+        <div
+          className={`rounded-lg p-2 ${isCollapsed ? "flex justify-center" : "flex min-w-0 items-center gap-3"} hover:bg-white/5`}
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-600/10">
             <User className="h-5 w-5 text-teal-600" />
           </div>
           {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold text-white">{profileName}</span>
-              <span className="text-sm text-slate-500">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <span className="block truncate text-sm font-semibold text-white" title={profileName}>
+                {profileName}
+              </span>
+              <span
+                className="block truncate text-sm text-slate-500"
+                title={profileEmail || undefined}
+              >
                 {profileEmail}
               </span>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800"
+                className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-teal-700 hover:text-teal-800"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <LogOut className="h-3.5 w-3.5 shrink-0" />
                 Logout
               </button>
             </div>

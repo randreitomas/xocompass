@@ -84,6 +84,17 @@ function dateInputsToUtcIsoRange(from: string, to: string): {
   return { from_date, to_date };
 }
 
+/** Soft-deleted rows anonymized by the backend often use this marker in name or email. */
+const DELETED_USER_MARKER = "[deleted user]";
+
+function isDeletedUserRow(u: AdminUserListItem): boolean {
+  const name = (u.full_name ?? "").toLowerCase();
+  const email = (u.email ?? "").toLowerCase();
+  return (
+    name.includes(DELETED_USER_MARKER) || email.includes(DELETED_USER_MARKER)
+  );
+}
+
 export const AdminPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const [activeSection, setActiveSection] = useState<SectionId>("users");
@@ -91,6 +102,7 @@ export const AdminPage: React.FC = () => {
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState("");
+  const [showDeletedUsers, setShowDeletedUsers] = useState(false);
 
   const [overview, setOverview] = useState<SystemOverviewResponse | null>(null);
   const [pipeline, setPipeline] = useState<PipelineStatusResponse | null>(null);
@@ -240,6 +252,16 @@ export const AdminPage: React.FC = () => {
     for (const u of users) ids.add(u.id);
     return [...ids];
   }, [users]);
+
+  const deletedUserCount = useMemo(
+    () => users.filter(isDeletedUserRow).length,
+    [users]
+  );
+
+  const visibleUsers = useMemo(() => {
+    if (showDeletedUsers) return users;
+    return users.filter((u) => !isDeletedUserRow(u));
+  }, [users, showDeletedUsers]);
 
   const pipelineHealthy =
     overview?.pipeline_status === "healthy" ||
@@ -463,9 +485,25 @@ export const AdminPage: React.FC = () => {
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">User & Access Management</h2>
-            <button type="button" onClick={() => setShowInviteModal(true)} className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
-              <Plus className="h-4 w-4" /> Invite User
-            </button>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={showDeletedUsers}
+                  onChange={(e) => setShowDeletedUsers(e.target.checked)}
+                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                />
+                <span>
+                  Show deleted users
+                  {deletedUserCount > 0 ? (
+                    <span className="text-slate-500"> ({deletedUserCount})</span>
+                  ) : null}
+                </span>
+              </label>
+              <button type="button" onClick={() => setShowInviteModal(true)} className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
+                <Plus className="h-4 w-4" /> Invite User
+              </button>
+            </div>
           </div>
           {usersLoading ? (
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -476,6 +514,16 @@ export const AdminPage: React.FC = () => {
           {usersError ? (
             <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{usersError}</p>
           ) : null}
+          {!usersLoading &&
+          users.length > 0 &&
+          visibleUsers.length === 0 &&
+          !showDeletedUsers ? (
+            <p className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Every loaded account matches a deleted-user placeholder. Turn on{" "}
+              <span className="font-medium text-slate-800">Show deleted users</span>{" "}
+              to list them.
+            </p>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
@@ -484,7 +532,7 @@ export const AdminPage: React.FC = () => {
                 ))}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {users.map((u) => (
+                {visibleUsers.map((u) => (
                   <tr key={u.id}>
                     <td className="px-3 py-2">{u.full_name}</td>
                     <td className="px-3 py-2">{u.email}</td>
