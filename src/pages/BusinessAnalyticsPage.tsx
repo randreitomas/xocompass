@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { formatApiErrorForUi } from "../lib/formatApiError";
+import { resolveEffectiveModelId } from "../lib/resolveDashboardModel";
 import * as dashboardService from "../services/dashboardService";
 import type { components } from "../types/api";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
@@ -50,6 +51,34 @@ const formatCompactRevenue = (value: number) => {
   }).format(value);
 
   return `₱${compact.toUpperCase()}`;
+};
+
+/** `YYYY-MM` → `Jan 2022` (UTC month boundary). */
+const formatYearMonthLabel = (ym: string): string => {
+  const match = /^(\d{4})-(\d{2})$/.exec(ym.trim());
+  if (!match) return ym;
+  const y = Number(match[1]);
+  const mo = Number(match[2]) - 1;
+  if (!Number.isFinite(y) || mo < 0 || mo > 11) return ym;
+  return new Date(Date.UTC(y, mo, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+};
+
+const calendarYearMonthRangeLabel = (year: number): string => {
+  const start = new Date(Date.UTC(year, 0, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const end = new Date(Date.UTC(year, 11, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${start} - ${end}`;
 };
 
 const StatCard: React.FC<StatCardProps> = ({
@@ -127,9 +156,10 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     }
   })();
 
-  const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
-  const selectedModelVersion =
-    routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
+  const preferredModelId =
+    routeState?.selectedModelId ?? storedModelId ?? null;
+  const preferredModelVersion =
+    routeState?.selectedModelVersion ?? storedModelVersion ?? "";
 
   const [businessAnalytics, setBusinessAnalytics] =
     useState<BusinessAnalyticsResponse | null>(null);
@@ -171,17 +201,15 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
 
   const hasNoData = !isLoadingModels && models.length === 0;
   const shouldShowColdStart = hasNoData && !isBackgroundPreview;
-  const effectiveModelId = useMemo(() => {
-    if (models.length === 0) return selectedModelId;
-    return models.some((model) => model.id === selectedModelId)
-      ? selectedModelId
-      : models[0].id;
-  }, [models, selectedModelId]);
+  const effectiveModelId = useMemo(
+    () => resolveEffectiveModelId(models, preferredModelId),
+    [models, preferredModelId]
+  );
   const effectiveModelVersion = useMemo(() => {
-    if (models.length === 0) return selectedModelVersion;
+    if (effectiveModelId == null) return preferredModelVersion;
     const selectedModel = models.find((model) => model.id === effectiveModelId);
-    return selectedModel?.version ?? selectedModelVersion;
-  }, [effectiveModelId, models, selectedModelVersion]);
+    return selectedModel?.version ?? preferredModelVersion;
+  }, [effectiveModelId, models, preferredModelVersion]);
 
   useEffect(() => {
     if (shouldShowColdStart) {
@@ -192,6 +220,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     }
 
     const fetchBusinessAnalytics = async () => {
+      if (effectiveModelId == null) return;
       try {
         setIsLoading(true);
         setLoadError("");
@@ -229,6 +258,7 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
     }
 
     const fetchOverallBusinessAnalytics = async () => {
+      if (effectiveModelId == null) return;
       try {
         const data = await dashboardService.getBusinessAnalytics(
           effectiveModelId,
@@ -367,11 +397,40 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         : 0
       : selectedYearRevenueByMonth.reduce((sum, point) => sum + point.revenue, 0)
   );
-  const dateCoverageDisplay = !isOverallView && selectedYear != null
-    ? `${selectedYear} - ${selectedYear}`
-    : firstYear > 0 && lastYear > 0
-    ? `${firstYear} - ${lastYear}`
-    : "—";
+  const dateCoverageDisplay = useMemo(() => {
+    if (
+      !isOverallView &&
+      selectedYear != null &&
+      Number.isFinite(selectedYear)
+    ) {
+      const prefix = `${selectedYear}-`;
+      const monthKeys = Array.from(
+        new Set([
+          ...selectedYearBookingsByMonth.map((p) => p.month),
+          ...selectedYearRevenueByMonth.map((p) => p.month),
+        ])
+      )
+        .filter((m) => m.startsWith(prefix))
+        .sort();
+      if (monthKeys.length > 0) {
+        const first = monthKeys[0];
+        const last = monthKeys[monthKeys.length - 1];
+        return `${formatYearMonthLabel(first)} - ${formatYearMonthLabel(last)}`;
+      }
+      return calendarYearMonthRangeLabel(selectedYear);
+    }
+    if (firstYear > 0 && lastYear > 0) {
+      return `${firstYear} - ${lastYear}`;
+    }
+    return "—";
+  }, [
+    isOverallView,
+    selectedYear,
+    selectedYearBookingsByMonth,
+    selectedYearRevenueByMonth,
+    firstYear,
+    lastYear,
+  ]);
   const avgWeeklyBookingsDisplay = (
     isOverallView
       ? businessAnalytics?.avg_weekly_bookings ?? 0
@@ -497,7 +556,9 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
           <p className="mt-1 text-[14px] text-slate-600">
             High-level performance overview for KJS POS and travel demand analytics.{" "}
             <span className="font-medium text-slate-700">
-              Model {effectiveModelVersion} (ID {effectiveModelId})
+              {effectiveModelId != null
+                ? `Model ${effectiveModelVersion} (ID ${effectiveModelId})`
+                : "Selecting latest trained model…"}
             </span>
           </p>
         </div>

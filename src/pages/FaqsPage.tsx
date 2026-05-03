@@ -159,9 +159,6 @@ export const FaqsPage: React.FC = () => {
           For access issues or data questions, contact your KJS administrator or
           internal IT.
         </p>
-        <p className="mt-2 font-mono text-sm text-teal-700">
-          support@xocompass.com
-        </p>
       </div>
     </div>
   );

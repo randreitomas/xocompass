@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { useLocation } from "react-router-dom";
 import { formatApiErrorForUi } from "../lib/formatApiError";
+import { resolveEffectiveModelId } from "../lib/resolveDashboardModel";
 import * as dashboardService from "../services/dashboardService";
 import type { components } from "../types/api";
 
@@ -303,7 +304,7 @@ const StemCheckChart: React.FC<{
   title: string;
   subtitle: string;
   /** Full series from API (includes lag 0 = 1); stem plot uses lag ≥ 1 only. */
-  points: CorrelationPoint[];
+  points: { lag: number; value: number }[];
 }> = ({ title, subtitle, points }) => {
   const chartData = useMemo(() => {
     const sorted = [...points].sort((a, b) => a.lag - b.lag);
@@ -686,11 +687,13 @@ export const AdvancedMetrics: React.FC = () => {
     }
   })();
 
-  const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
-  const selectedModelVersion =
-    routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
+  const preferredModelId =
+    routeState?.selectedModelId ?? storedModelId ?? null;
+  const preferredModelVersion =
+    routeState?.selectedModelVersion ?? storedModelVersion ?? "";
 
   const [models, setModels] = useState<ModelDropdownItem[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [advancedMetrics, setAdvancedMetrics] =
     useState<AdvancedMetricsResponse | null>(null);
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
@@ -700,31 +703,45 @@ export const AdvancedMetrics: React.FC = () => {
   useEffect(() => {
     const fetchModels = async () => {
       try {
+        setIsLoadingModels(true);
         const data = await dashboardService.getModels();
         setModels(data.available_models ?? []);
       } catch (error) {
         console.error("Unable to load models:", error);
         setModels([]);
+      } finally {
+        setIsLoadingModels(false);
       }
     };
 
     fetchModels();
   }, []);
 
-  const effectiveModelId = useMemo(() => {
-    if (models.length === 0) return selectedModelId;
-    return models.some((model) => model.id === selectedModelId)
-      ? selectedModelId
-      : models[0].id;
-  }, [models, selectedModelId]);
+  const effectiveModelId = useMemo(
+    () => resolveEffectiveModelId(models, preferredModelId),
+    [models, preferredModelId]
+  );
 
   const effectiveModelVersion = useMemo(() => {
-    if (models.length === 0) return selectedModelVersion;
+    if (effectiveModelId == null) return preferredModelVersion;
     const selectedModel = models.find((model) => model.id === effectiveModelId);
-    return selectedModel?.version ?? selectedModelVersion;
-  }, [effectiveModelId, models, selectedModelVersion]);
+    return selectedModel?.version ?? preferredModelVersion;
+  }, [effectiveModelId, models, preferredModelVersion]);
 
   useEffect(() => {
+    if (!isLoadingModels && models.length === 0) {
+      setAdvancedMetrics(null);
+      setLoadError("");
+      setIsLoading(false);
+      return;
+    }
+    if (effectiveModelId == null) {
+      if (isLoadingModels) {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     const fetchAdvancedMetrics = async () => {
       try {
         setIsLoading(true);
@@ -740,9 +757,10 @@ export const AdvancedMetrics: React.FC = () => {
     };
 
     fetchAdvancedMetrics();
-  }, [effectiveModelId]);
+  }, [effectiveModelId, isLoadingModels, models.length]);
 
   useEffect(() => {
+    if (effectiveModelId == null) return;
     try {
       localStorage.setItem("xocompass:selectedModelId", String(effectiveModelId));
       localStorage.setItem("xocompass:selectedModelVersion", effectiveModelVersion);
@@ -782,11 +800,20 @@ export const AdvancedMetrics: React.FC = () => {
             the target variable being Weekly Bookings overview for KJS demand
             forecasting.{" "}
             <span className="font-medium text-slate-700">
-              Model {effectiveModelVersion} (ID {effectiveModelId})
+              {effectiveModelId != null
+                ? `Model ${effectiveModelVersion} (ID ${effectiveModelId})`
+                : "Selecting latest trained model…"}
             </span>
           </p>
         </div>
       </div>
+
+      {isLoadingModels ? (
+        <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-600 shadow-sm">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-teal-600 border-t-transparent align-middle" />{" "}
+          Loading model registry…
+        </p>
+      ) : null}
 
       {isLoading && (
         <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-600 shadow-sm">

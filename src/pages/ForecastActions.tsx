@@ -21,6 +21,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatApiErrorForUi } from "../lib/formatApiError";
+import { resolveEffectiveModelId } from "../lib/resolveDashboardModel";
 import * as dashboardService from "../services/dashboardService";
 import type { components } from "../types/api";
 import { SkeletonDashboard } from "../components/dashboard/SkeletonDashboard";
@@ -171,6 +172,75 @@ const formatWeekLabel = (date: Date) => {
   return `${month} W${weekOfMonth} ${year}`;
 };
 
+/** Row injected on chart points for the unified forward line */
+type DemandChartDatum = DemandSeriesPoint & {
+  forecastForwardUnified?: number | null;
+};
+
+const DEMAND_TOOLTIP_STYLE = {
+  backgroundColor: "#ffffff",
+  border: "1px solid #cbd5e1",
+  borderRadius: 10,
+  boxShadow:
+    "0 12px 28px -8px rgb(15 23 42 / 0.22), 0 4px 12px -4px rgb(15 23 42 / 0.14)",
+  fontSize: 13,
+  fontWeight: 500,
+  color: "#0f172a",
+  padding: "10px 14px",
+} as const;
+
+const DemandChartTooltip: React.FC<{
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: DemandChartDatum }>;
+  label?: string | number;
+}> = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+
+  const rows: { label: string; value: number }[] = [];
+
+  const pushIfFinite = (lbl: string, raw: number | null | undefined) => {
+    if (raw == null) return;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(n)) return;
+    rows.push({ label: lbl, value: n });
+  };
+
+  pushIfFinite("Forecasted (History)", d.forecastHistory);
+  pushIfFinite("Forecasted (forward)", d.forecastForwardUnified);
+  pushIfFinite("Upper CI", d.upperCI);
+  pushIfFinite("Lower CI", d.lowerCI);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={DEMAND_TOOLTIP_STYLE}>
+      <p
+        style={{
+          color: "#1e293b",
+          fontWeight: 700,
+          marginBottom: 6,
+          marginTop: 0,
+        }}
+      >
+        {label != null ? String(label) : ""}
+      </p>
+      {rows.map((row) => (
+        <p
+          key={row.label}
+          style={{ color: "#0f172a", paddingTop: 2, paddingBottom: 2, margin: 0 }}
+        >
+          <span className="text-slate-500">{row.label}: </span>
+          <span className="font-semibold tabular-nums">
+            {row.value.toLocaleString("en-US")}
+          </span>
+        </p>
+      ))}
+    </div>
+  );
+};
+
 const StatCard: React.FC<StatCardProps> = ({
   id,
   label,
@@ -270,33 +340,7 @@ const WeeklyDemandChart: React.FC<{
         <Tooltip
           wrapperStyle={{ outline: "none", zIndex: 40 }}
           cursor={{ stroke: "#64748b", strokeWidth: 1, strokeDasharray: "4 3" }}
-          contentStyle={{
-            backgroundColor: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: 10,
-            boxShadow:
-              "0 12px 28px -8px rgb(15 23 42 / 0.22), 0 4px 12px -4px rgb(15 23 42 / 0.14)",
-            fontSize: 13,
-            fontWeight: 500,
-            color: "#0f172a",
-            padding: "10px 14px",
-          }}
-          labelStyle={{ color: "#1e293b", fontWeight: 700, marginBottom: 6 }}
-          itemStyle={{ color: "#0f172a", paddingTop: 2, paddingBottom: 2 }}
-          formatter={(value, name) => {
-            if (
-              name === "__zone-base" ||
-              name === "__history-top-band" ||
-              name === "__near-top-band" ||
-              name === "__beyond-top-band"
-            ) {
-              return null;
-            }
-            const numericValue = typeof value === "number" ? value : Number(value);
-            return Number.isFinite(numericValue)
-              ? [numericValue.toLocaleString("en-US"), name]
-              : ["—", name];
-          }}
+          content={DemandChartTooltip}
         />
         <Area
           type="monotone"
@@ -381,17 +425,25 @@ const WeeklyDemandChart: React.FC<{
         <Area
           type="monotone"
           dataKey="upperCI"
-          stroke="none"
+          name="__upper-ci-band"
+          stroke="#14B8A6"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
           fill="#99F6E4"
           fillOpacity={0.35}
+          legendType="none"
           isAnimationActive={false}
         />
         <Area
           type="monotone"
           dataKey="lowerCI"
-          stroke="none"
+          name="__lower-ci-band"
+          stroke="#14B8A6"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
           fill="#ffffff"
           fillOpacity={1}
+          legendType="none"
           isAnimationActive={false}
         />
         <Line
@@ -428,16 +480,6 @@ const WeeklyDemandChart: React.FC<{
         />
         <Line
           type="monotone"
-          dataKey="upperCI"
-          name="Upper CI"
-          stroke="#14B8A6"
-          strokeDasharray="4 3"
-          strokeWidth={1.5}
-          dot={false}
-          connectNulls={false}
-        />
-        <Line
-          type="monotone"
           dataKey="transition"
           name="Transition"
           stroke="#0D9488"
@@ -446,16 +488,6 @@ const WeeklyDemandChart: React.FC<{
           connectNulls={false}
           legendType="none"
           isAnimationActive={false}
-        />
-        <Line
-          type="monotone"
-          dataKey="lowerCI"
-          name="Lower CI"
-          stroke="#14B8A6"
-          strokeDasharray="4 3"
-          strokeWidth={1.5}
-          dot={false}
-          connectNulls={false}
         />
             </ComposedChart>
           </ResponsiveContainer>
@@ -517,9 +549,10 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     }
   })();
 
-  const selectedModelId = routeState?.selectedModelId ?? storedModelId ?? 2;
-  const selectedModelVersion =
-    routeState?.selectedModelVersion ?? storedModelVersion ?? "v10.1";
+  const preferredModelId =
+    routeState?.selectedModelId ?? storedModelId ?? null;
+  const preferredModelVersion =
+    routeState?.selectedModelVersion ?? storedModelVersion ?? "";
 
   const [forecastOutlook, setForecastOutlook] =
     useState<ForecastOutlookResponse | null>(null);
@@ -551,17 +584,15 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
 
   const hasNoData = !isLoadingModels && models.length === 0;
   const shouldShowColdStart = hasNoData && !isBackgroundPreview;
-  const effectiveModelId = useMemo(() => {
-    if (models.length === 0) return selectedModelId;
-    return models.some((model) => model.id === selectedModelId)
-      ? selectedModelId
-      : models[0].id;
-  }, [models, selectedModelId]);
+  const effectiveModelId = useMemo(
+    () => resolveEffectiveModelId(models, preferredModelId),
+    [models, preferredModelId]
+  );
   const effectiveModelVersion = useMemo(() => {
-    if (models.length === 0) return selectedModelVersion;
+    if (effectiveModelId == null) return preferredModelVersion;
     const selectedModel = models.find((model) => model.id === effectiveModelId);
-    return selectedModel?.version ?? selectedModelVersion;
-  }, [effectiveModelId, models, selectedModelVersion]);
+    return selectedModel?.version ?? preferredModelVersion;
+  }, [effectiveModelId, models, preferredModelVersion]);
 
   useEffect(() => {
     if (shouldShowColdStart) {
@@ -574,6 +605,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
     }
 
     const fetchForecastOutlook = async () => {
+      if (effectiveModelId == null) return;
       try {
         setIsLoading(true);
         setLoadError("");
@@ -608,6 +640,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   }, [effectiveModelId, shouldShowColdStart]);
 
   useEffect(() => {
+    if (effectiveModelId == null) return;
     try {
       localStorage.setItem("xocompass:selectedModelId", String(effectiveModelId));
       localStorage.setItem("xocompass:selectedModelVersion", effectiveModelVersion);
@@ -644,8 +677,10 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       ? totalForecastedBookings / forecastHorizonWeeks
       : null;
 
-  const riskWeeks: RiskWeekRow[] = useMemo(() => {
-    const critical = forecastOutlook?.critical_weeks ?? [];
+  const criticalWeeksRaw = forecastOutlook?.critical_weeks;
+
+  const riskWeeksAll: RiskWeekRow[] = useMemo(() => {
+    const critical = criticalWeeksRaw ?? [];
     const graphRows = forecastGraph?.data ?? [];
     return critical.map((week) => ({
       week: `${new Date(week.week_start).toLocaleDateString("en-US", {
@@ -667,11 +702,17 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       riskFactor: normalizeRiskFactorLabel(week.risk_factor),
     }));
   }, [
-    forecastOutlook?.critical_weeks,
+    criticalWeeksRaw,
     forecastGraph?.data,
     historicalHorizonWeeks,
     nearForecastHorizonWeeks,
   ]);
+
+  /** Table lists forward/near-term risk only; backtest "Forecast History" weeks are omitted. */
+  const riskWeeks = useMemo(
+    () => riskWeeksAll.filter((row) => row.horizonStatus !== "Forecast History"),
+    [riskWeeksAll]
+  );
 
   const demandSeriesBundle = useMemo(() => {
     const graphRows = forecastGraph?.data ?? [];
@@ -754,8 +795,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
         `Launch targeted promos and staffing adjustments for ${mediumRiskCount} medium-risk week${mediumRiskCount > 1 ? "s" : ""}.`
       );
     }
-    const criticalVolumes =
-      forecastOutlook?.critical_weeks?.map((week) => week.forecasted_volume) ?? [];
+    const criticalVolumes = riskWeeks.map((week) => week.forecastedVolume);
     if (criticalVolumes.length >= 2) {
       const first = criticalVolumes[0];
       const last = criticalVolumes[criticalVolumes.length - 1];
@@ -775,7 +815,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
       );
     }
     return insights;
-  }, [forecastOutlook?.critical_weeks, riskWeeks, strategicActions?.actions]);
+  }, [riskWeeks, strategicActions?.actions]);
   const toggleKpiCard = (cardId: string) => {
     setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
   };
@@ -798,7 +838,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                 ? ` across the ${forecastHorizonWeeks}-week forward horizon.`
                 : "."}{" "}
               <span className="font-medium text-slate-700">
-                Model {effectiveModelVersion} (ID {effectiveModelId})
+                {effectiveModelId != null
+                  ? `Model ${effectiveModelVersion} (ID ${effectiveModelId})`
+                  : "Selecting latest trained model…"}
               </span>
             </p>
           </div>
@@ -816,6 +858,13 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
             {loadError}
           </p>
         )}
+
+        {isLoadingModels && !isBackgroundPreview ? (
+          <p className="mt-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-600 shadow-sm">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-teal-600 border-t-transparent align-middle" />{" "}
+            Loading model registry…
+          </p>
+        ) : null}
 
         <div className="mt-6 space-y-8">
           {shouldShowColdStart ? (
@@ -947,9 +996,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     Critical Forecast Weeks
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Weeks with elevated demand risk in the near-term forecast horizon. Status matches
-                    the weekly demand chart: forecast history (backtest window), next two weeks, or
-                    beyond two weeks.
+                    Weeks with elevated demand risk in the forward forecast horizon. Status matches
+                    the demand chart regions for the next two weeks or beyond (backtest history rows
+                    are excluded here).
                   </p>
                   <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -976,7 +1025,9 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                               colSpan={4}
                               className="px-4 py-6 text-center text-slate-500"
                             >
-                              No critical forecast weeks returned from the API.
+                              {(criticalWeeksRaw?.length ?? 0) === 0
+                                ? "No critical forecast weeks returned from the API."
+                                : "No forward-looking critical weeks for this snapshot (forecast-history rows are omitted)."}
                             </td>
                           </tr>
                         ) : null}

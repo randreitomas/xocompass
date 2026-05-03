@@ -118,7 +118,6 @@ export const AdminPage: React.FC = () => {
   const [modules] = useState<ModuleConfig[]>(INITIAL_MODULES);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteForm, setInviteForm] = useState({
-    name: "",
     email: "",
     role: "Viewer" as UiUserRole,
   });
@@ -365,7 +364,7 @@ export const AdminPage: React.FC = () => {
       if (!ok) return;
     }
     setShowInviteModal(false);
-    setInviteForm({ name: "", email: "", role: "Viewer" });
+    setInviteForm({ email: "", role: "Viewer" });
     setInviteUrlPayload(null);
     setInviteCopied(false);
   };
@@ -840,7 +839,6 @@ export const AdminPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-slate-900">Invite New User</h3>
                 <p className="mt-1 text-xs text-slate-500">Invite uses email and role only; the invitee sets their full name when registering.</p>
                 <div className="mt-4 space-y-3">
-                  <input placeholder="Name (optional note)" value={inviteForm.name} onChange={(e) => setInviteForm((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                   <input placeholder="Email" type="email" required value={inviteForm.email} onChange={(e) => setInviteForm((p) => ({ ...p, email: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                   <select value={inviteForm.role} onChange={(e) => setInviteForm((p) => ({ ...p, role: e.target.value as UiUserRole }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                     <option value="Admin">Admin</option>
