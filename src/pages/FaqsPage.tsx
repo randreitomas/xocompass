@@ -78,7 +78,7 @@ const groups: Record<string, FaqItem[]> = {
     {
       question: "Where can I review who did what?",
       answer:
-        "Audit Logs under Admin Console lists timestamped actions (who, action type, module, success or failure) with filters and CSV export for governance and troubleshooting.",
+        "Under Admin Console → Activity & Audit Logs, a platform snapshot (active users, last sync, pipeline status, pending invites) sits above the audit table of timestamped actions (who, action type, module, success or failure), with filters and CSV export for governance and troubleshooting.",
     },
   ],
   "Models & metrics glossary": [
