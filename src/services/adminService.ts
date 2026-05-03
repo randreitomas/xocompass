@@ -13,6 +13,8 @@ type GlobalSettingItem = components["schemas"]["GlobalSettingItem"];
 type GlobalSettingsListResponse = components["schemas"]["GlobalSettingsListResponse"];
 type UpdateSettingRequest = components["schemas"]["UpdateSettingRequest"];
 type UserStatusResponse = components["schemas"]["UserStatusResponse"];
+type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
+type AdminUserDetailResponse = components["schemas"]["AdminUserDetailResponse"];
 
 export interface ListUsersParams {
   page?: number;
@@ -50,6 +52,28 @@ export async function deactivateUser(userId: string): Promise<UserStatusResponse
   return apiRequest<UserStatusResponse>(
     `/admin/users/${encodeURIComponent(userId)}/deactivate`,
     { method: "POST" }
+  );
+}
+
+/** Soft-delete: backend returns 204 with no body. */
+export async function deleteUser(userId: string): Promise<void> {
+  await apiRequest<void>(
+    `/admin/users/${encodeURIComponent(userId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function patchUser(
+  userId: string,
+  body: UpdateUserRequest
+): Promise<AdminUserDetailResponse> {
+  return apiRequest<AdminUserDetailResponse>(
+    `/admin/users/${encodeURIComponent(userId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
   );
 }
 

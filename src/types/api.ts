@@ -142,7 +142,8 @@ export interface paths {
         get: operations["get_user_admin_users__user_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Soft-delete user (deactivate, anonymize email, revoke sessions). */
+        delete: operations["delete_user_admin_users__user_id__delete"];
         options?: never;
         head?: never;
         /** Partial update of a user (full_name and/or role). */
@@ -2012,6 +2013,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminUserDetailResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_admin_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -3,6 +3,7 @@ import { Download, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 import { formatApiErrorForUi } from "../lib/formatApiError";
 import * as adminService from "../services/adminService";
 import type { components } from "../types/api";
+import { useAuth } from "../contexts/AuthContext";
 
 type SectionId = "users" | "overview" | "audit" | "config";
 type UiUserRole = "Admin" | "Analyst" | "Viewer";
@@ -52,6 +53,12 @@ function apiRoleLabel(role: AdminUserListItem["role"]): string {
   }
 }
 
+function apiRoleToUi(role: AdminUserListItem["role"]): UiUserRole {
+  if (role === "ADMIN") return "Admin";
+  if (role === "ANALYST") return "Analyst";
+  return "Viewer";
+}
+
 function formatLogin(iso?: string | null): string {
   if (!iso) return "Never";
   try {
@@ -77,6 +84,7 @@ function dateInputsToUtcIsoRange(from: string, to: string): {
 }
 
 export const AdminPage: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [activeSection, setActiveSection] = useState<SectionId>("users");
 
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
@@ -105,6 +113,12 @@ export const AdminPage: React.FC = () => {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteUrlPayload, setInviteUrlPayload] = useState<CreateInvitationResponse | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+
+  const [roleEditUser, setRoleEditUser] = useState<AdminUserListItem | null>(
+    null
+  );
+  const [roleDraft, setRoleDraft] = useState<UiUserRole>("Viewer");
+  const [roleEditBusy, setRoleEditBusy] = useState(false);
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -261,6 +275,43 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const handleDeleteUser = async (u: AdminUserListItem) => {
+    const ok = window.confirm(
+      `Permanently remove access for ${u.email}? Their account will be soft-deleted (sessions revoked, email anonymized). This cannot be undone from the console.`
+    );
+    if (!ok) return;
+    setUsersError("");
+    try {
+      await adminService.deleteUser(u.id);
+      await loadUsers();
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    }
+  };
+
+  const openRoleEditor = (u: AdminUserListItem) => {
+    setUsersError("");
+    setRoleEditUser(u);
+    setRoleDraft(apiRoleToUi(u.role));
+  };
+
+  const submitRoleEdit = async () => {
+    if (!roleEditUser) return;
+    setRoleEditBusy(true);
+    setUsersError("");
+    try {
+      await adminService.patchUser(roleEditUser.id, {
+        role: uiRoleToApi(roleDraft),
+      });
+      setRoleEditUser(null);
+      await loadUsers();
+    } catch (e) {
+      setUsersError(formatApiErrorForUi(e));
+    } finally {
+      setRoleEditBusy(false);
+    }
+  };
+
   const submitInvite = async () => {
     if (!inviteForm.email.trim()) return;
     setInviteBusy(true);
@@ -386,7 +437,9 @@ export const AdminPage: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
-                <tr>{["Name", "Email", "Role", "Status", "Last Login", "Actions"].map((h) => <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600">{h}</th>)}</tr>
+                <tr>{["Name", "Email", "Role", "Status", "Last Login", "Actions"].map((h) => (
+                  <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600">{h}</th>
+                ))}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {users.map((u) => (
@@ -398,7 +451,11 @@ export const AdminPage: React.FC = () => {
                     <td className="px-3 py-2">{formatLogin(u.last_login_at)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" className="rounded-md border border-slate-200 px-2 py-1 text-xs opacity-50" disabled title="Use API/console for role edits">
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+                          onClick={() => openRoleEditor(u)}
+                        >
                           Edit Role
                         </button>
                         <button
@@ -407,6 +464,15 @@ export const AdminPage: React.FC = () => {
                           onClick={() => void (u.is_active ? handleDeactivate(u.id) : handleActivate(u.id))}
                         >
                           {u.is_active ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={currentUser?.id === u.id}
+                          title={currentUser?.id === u.id ? "You cannot delete your own account." : undefined}
+                          onClick={() => void handleDeleteUser(u)}
+                        >
+                          Delete
                         </button>
                         <button type="button" className="rounded-md border border-slate-200 px-2 py-1 text-xs opacity-50" disabled title="Not available via API">
                           Reset Password
@@ -596,6 +662,49 @@ export const AdminPage: React.FC = () => {
             </button>
           </div>
         </section>
+      )}
+
+      {roleEditUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900">Edit role</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              {roleEditUser.full_name} · {roleEditUser.email}
+            </p>
+            <div className="mt-4">
+              <label htmlFor="roleDraft" className="text-xs font-medium text-slate-700">
+                Role
+              </label>
+              <select
+                id="roleDraft"
+                value={roleDraft}
+                onChange={(e) => setRoleDraft(e.target.value as UiUserRole)}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                <option value="Admin">Admin</option>
+                <option value="Analyst">Analyst</option>
+                <option value="Viewer">Viewer</option>
+              </select>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRoleEditUser(null)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={roleEditBusy}
+                onClick={() => void submitRoleEdit()}
+                className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {roleEditBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showInviteModal && (
