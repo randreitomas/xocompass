@@ -141,12 +141,14 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [selectedYearView, setSelectedYearView] = useState<string>("overall");
   const [netRevenueGranularity, setNetRevenueGranularity] = useState<"month" | "year">("month");
+  const [bookingsGranularity, setBookingsGranularity] = useState<"month" | "year">("month");
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
   const [availableYears, setAvailableYears] = useState<number[]>([]);
 
   useEffect(() => {
     if (selectedYearView !== "overall") {
       setNetRevenueGranularity("month");
+      setBookingsGranularity("month");
     }
   }, [selectedYearView]);
 
@@ -287,20 +289,64 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
       point.month.startsWith(`${selectedYear}-`)
     );
   }, [canonicalAnalytics?.revenue_by_month, selectedYear]);
+
+  const hasBackendBookingsByYear = useMemo(
+    () =>
+      Boolean(
+        businessAnalytics?.bookings_by_year &&
+          Array.isArray(businessAnalytics.bookings_by_year) &&
+          businessAnalytics.bookings_by_year.length > 0
+      ),
+    [businessAnalytics?.bookings_by_year]
+  );
+
+  /** Overall KPI view — monthly series from API (parallel to revenue_by_month). */
+  const bookingsMonthlyOverall = useMemo(() => {
+    if (!businessAnalytics) return [];
+    return [...(businessAnalytics.bookings_by_month ?? [])]
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((p) => ({ year: p.month, bookings: p.bookings }));
+  }, [businessAnalytics]);
+
+  /** Overall “By year”: bookings_by_year when present; else sum bookings_by_month by calendar year. */
+  const bookingsYearlyOverall = useMemo(() => {
+    if (!businessAnalytics) return [];
+    const apiRows = businessAnalytics.bookings_by_year;
+    if (Array.isArray(apiRows) && apiRows.length > 0) {
+      return [...apiRows]
+        .sort((a, b) => String(a.year).localeCompare(String(b.year)))
+        .map((row) => ({ year: row.year, bookings: row.bookings }));
+    }
+    const totals = new Map<string, number>();
+    for (const point of businessAnalytics.bookings_by_month ?? []) {
+      const yearKey = point.month.slice(0, 4);
+      totals.set(yearKey, (totals.get(yearKey) ?? 0) + point.bookings);
+    }
+    return [...totals.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([year, bookings]) => ({ year, bookings }));
+  }, [businessAnalytics]);
+
   const bookingsOverTimeDisplayData = useMemo(() => {
-    if (isOverallView || selectedYear == null || !Number.isFinite(selectedYear)) {
-      return bookingsByYearData;
+    if (!isOverallView && selectedYear != null && Number.isFinite(selectedYear)) {
+      return [...selectedYearBookingsByMonth]
+        .sort((a, b) => a.month.localeCompare(b.month))
+        .map((p) => ({ year: p.month, bookings: p.bookings }));
     }
-
-    if (businessAnalytics?.bookings_by_month?.length) {
-      return businessAnalytics.bookings_by_month.map((point) => ({
-        year: point.month,
-        bookings: point.bookings,
-      }));
+    if (isOverallView) {
+      return bookingsGranularity === "year"
+        ? bookingsYearlyOverall
+        : bookingsMonthlyOverall;
     }
-
-    return bookingsByYearData;
-  }, [bookingsByYearData, businessAnalytics?.bookings_by_month, isOverallView, selectedYear]);
+    return [];
+  }, [
+    isOverallView,
+    selectedYear,
+    bookingsGranularity,
+    selectedYearBookingsByMonth,
+    bookingsMonthlyOverall,
+    bookingsYearlyOverall,
+  ]);
 
   const avgLeadDays = businessAnalytics?.avg_lead_time_days;
   const averageLeadTimeDisplay =
@@ -596,11 +642,17 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         leadTimeDistribution={leadTimeDistributionDisplay}
         topRoutes={topRoutesDisplay}
         dataQualityItems={dataQualityDisplay}
-        bookingsPeriodLabel={isOverallView ? "Year" : "Month"}
+        bookingsPeriodLabel={
+          isOverallView ? (bookingsGranularity === "year" ? "Year" : "Month") : "Month"
+        }
         bookingsOverTimeDescription={
           isOverallView
-            ? "Total bookings by year from the linked dataset."
-            : `Monthly bookings for ${selectedYear} from backend year-filtered analytics.`
+            ? bookingsGranularity === "year"
+              ? hasBackendBookingsByYear
+                ? "Total bookings by calendar year — values from API field bookings_by_year."
+                : "Total bookings by calendar year — summed from bookings_by_month (bookings_by_year not returned)."
+              : "Total bookings by month from bookings_by_month (overall dataset)."
+            : `Monthly bookings for ${selectedYear} — same monthly keys as Net Revenue for this year.`
         }
         netRevenuePeriodLabel={
           isOverallView ? (netRevenueGranularity === "year" ? "Year" : "Month") : "Month"
@@ -617,6 +669,9 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         showNetRevenueGranularityToggle={isOverallView}
         netRevenueGranularity={netRevenueGranularity}
         onNetRevenueGranularityChange={setNetRevenueGranularity}
+        showBookingsGranularityToggle={isOverallView}
+        bookingsGranularity={bookingsGranularity}
+        onBookingsGranularityChange={setBookingsGranularity}
       />
       </>
       )}

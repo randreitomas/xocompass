@@ -62,6 +62,10 @@ export interface BusinessAnalyticsTabProps {
   showNetRevenueGranularityToggle?: boolean;
   netRevenueGranularity?: "month" | "year";
   onNetRevenueGranularityChange?: (value: "month" | "year") => void;
+  /** Bookings Over Time: same toggle pattern as Net Revenue when Overall is selected. */
+  showBookingsGranularityToggle?: boolean;
+  bookingsGranularity?: "month" | "year";
+  onBookingsGranularityChange?: (value: "month" | "year") => void;
 }
 
 const AIRLINE_LOGO_DOMAIN_BY_CODE: Record<string, string> = {
@@ -172,12 +176,12 @@ const BookingsOverTimeChart: React.FC<{
 }> = ({ data, periodLabel = "Year" }) => {
   const yearlySeries = useMemo(
     () =>
-      data
+      [...data]
         .map((point) => ({
           year: String(point.year),
           bookings: point.bookings,
         }))
-        .sort((a, b) => Number(a.year) - Number(b.year)),
+        .sort((a, b) => a.year.localeCompare(b.year)),
     [data]
   );
 
@@ -516,14 +520,15 @@ const DataQualityPanel: React.FC<{ items: DataQualityItem[] }> = ({ items }) => 
   </div>
 );
 
-const NetRevenueGranularityToggle: React.FC<{
+const MonthYearGranularityToggle: React.FC<{
   value: "month" | "year";
   onChange: (value: "month" | "year") => void;
-}> = ({ value, onChange }) => (
+  ariaLabel: string;
+}> = ({ value, onChange, ariaLabel }) => (
   <div
     className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 shadow-sm"
     role="group"
-    aria-label="Net revenue breakdown"
+    aria-label={ariaLabel}
   >
     {(["month", "year"] as const).map((key) => (
       <button
@@ -556,6 +561,9 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
   showNetRevenueGranularityToggle = false,
   netRevenueGranularity = "month",
   onNetRevenueGranularityChange,
+  showBookingsGranularityToggle = false,
+  bookingsGranularity = "month",
+  onBookingsGranularityChange,
 }) => {
   const hasAirlines = Boolean(topAirlines && topAirlines.length > 0);
   const hasLeadBuckets = Boolean(leadTimeDistribution && leadTimeDistribution.length > 0);
@@ -570,6 +578,15 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
           title="Bookings Over Time"
           description={bookingsOverTimeDescription}
           heightClassName="h-72"
+          headerActions={
+            showBookingsGranularityToggle && onBookingsGranularityChange ? (
+              <MonthYearGranularityToggle
+                value={bookingsGranularity}
+                onChange={onBookingsGranularityChange}
+                aria-label="Bookings over time breakdown"
+              />
+            ) : undefined
+          }
         >
           <BookingsOverTimeChart data={bookingsByYear} periodLabel={bookingsPeriodLabel} />
         </ChartShell>
@@ -579,9 +596,10 @@ export const BusinessAnalyticsTab: React.FC<BusinessAnalyticsTabProps> = ({
           heightClassName="h-72"
           headerActions={
             showNetRevenueGranularityToggle && onNetRevenueGranularityChange ? (
-              <NetRevenueGranularityToggle
+              <MonthYearGranularityToggle
                 value={netRevenueGranularity}
                 onChange={onNetRevenueGranularityChange}
+                aria-label="Net revenue breakdown"
               />
             ) : undefined
           }

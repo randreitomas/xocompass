@@ -6,6 +6,7 @@ import {
   BarChart,
   CartesianGrid,
   ComposedChart,
+  LabelList,
   Line,
   ReferenceLine,
   ResponsiveContainer,
@@ -353,9 +354,82 @@ const StemCheckChart: React.FC<{
   );
 };
 
-const PlaceholderChart: React.FC<{ residuals?: { fitted: number; residual: number }[] }> = ({
-  residuals,
-}) => {
+type ResidualHistogramRow = {
+  binStart: number;
+  binEnd: number;
+  binMid: number;
+  count: number;
+};
+
+const ResidualDistributionTooltip: React.FC<{
+  active?: boolean;
+  payload?: Array<{ payload?: ResidualHistogramRow }>;
+}> = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+      <p className="font-semibold text-slate-900">Residual bin</p>
+      <p className="mt-1 tabular-nums text-slate-600">
+        Range:{" "}
+        <span className="font-medium text-slate-800">
+          {row.binStart.toFixed(5)} → {row.binEnd.toFixed(5)}
+        </span>
+      </p>
+      <p className="mt-0.5 tabular-nums text-slate-600">
+        Center: <span className="font-medium text-slate-800">{row.binMid.toFixed(5)}</span>
+      </p>
+      <p className="mt-1 font-semibold tabular-nums text-teal-800">
+        Count: {row.count.toLocaleString("en-US")}
+      </p>
+    </div>
+  );
+};
+
+const ResidualDistributionChart: React.FC<{
+  residuals?: { fitted: number; residual: number }[];
+}> = ({ residuals }) => {
+  const chartData = useMemo((): ResidualHistogramRow[] => {
+    if (!residuals?.length) return [];
+    const values = residuals.map((point) => point.residual);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+    if (min === max) {
+      const pad = Math.abs(min) > 1e-12 ? Math.abs(min) * 0.05 : 0.05;
+      min -= pad;
+      max += pad;
+    }
+    const bucketCount = Math.min(24, Math.max(8, Math.ceil(Math.sqrt(values.length))));
+    const range = Math.max(max - min, Number.EPSILON);
+    const binWidth = range / bucketCount;
+
+    const rows: ResidualHistogramRow[] = Array.from({ length: bucketCount }, (_, i) => {
+      const binStart = min + i * binWidth;
+      const binEnd = i === bucketCount - 1 ? max : min + (i + 1) * binWidth;
+      return {
+        binStart,
+        binEnd,
+        binMid: (binStart + binEnd) / 2,
+        count: 0,
+      };
+    });
+
+    for (const value of values) {
+      let idx = Math.floor(((value - min) / range) * bucketCount);
+      idx = Math.min(Math.max(idx, 0), bucketCount - 1);
+      rows[idx].count += 1;
+    }
+
+    return rows;
+  }, [residuals]);
+
+  const maxCount = useMemo(
+    () => chartData.reduce((m, r) => Math.max(m, r.count), 0),
+    [chartData]
+  );
+
   if (!residuals?.length) {
     return (
       <div className="flex min-h-[10rem] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
@@ -364,42 +438,84 @@ const PlaceholderChart: React.FC<{ residuals?: { fitted: number; residual: numbe
     );
   }
 
-  const histogramBars = (() => {
-    const values = residuals.map((point) => point.residual);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const bucketCount = 9;
-    const range = Math.max(max - min, 1);
-    const buckets = Array.from({ length: bucketCount }, () => 0);
-    values.forEach((value) => {
-      const idx = Math.min(
-        Math.floor(((value - min) / range) * bucketCount),
-        bucketCount - 1
-      );
-      buckets[idx] += 1;
-    });
-    const maxBucket = Math.max(...buckets, 1);
-    return buckets.map((bucket) => Math.max((bucket / maxBucket) * 100, 12));
-  })();
+  if (chartData.length === 0 || maxCount === 0) {
+    return (
+      <div className="flex min-h-[10rem] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        Could not build a histogram from residual values.
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
-      <div className="flex min-h-[7rem] flex-1 items-end gap-1.5 sm:min-h-[8rem] sm:gap-2">
-        {histogramBars.map((height, idx) => (
-          <div
-            key={`residual-${idx}`}
-            className="min-w-0 flex-1 rounded-t bg-teal-500/75"
-            style={{ height: `${height}%` }}
+    <div className="h-72 min-h-[14rem] w-full flex-1 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:p-3">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={chartData}
+          margin={{ top: 28, right: 12, left: 8, bottom: 36 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+          <XAxis
+            dataKey="binMid"
+            type="number"
+            domain={[chartData[0].binStart, chartData[chartData.length - 1].binEnd]}
+            ticks={chartData.map((d) => d.binMid)}
+            tickFormatter={(v: number) =>
+              Number(v).toLocaleString("en-US", {
+                maximumFractionDigits: 3,
+                notation: Math.abs(v) >= 1000 || (Math.abs(v) > 0 && Math.abs(v) < 1e-2) ? "scientific" : "standard",
+              })
+            }
+            tick={{ fontSize: 10, fill: "#6B7280" }}
+            tickLine={false}
+            axisLine={{ stroke: "#E5E7EB" }}
+            label={{
+              value: "Residual (bin center)",
+              position: "insideBottom",
+              offset: -28,
+              fill: "#64748B",
+              fontSize: 11,
+              fontWeight: 600,
+            }}
           />
-        ))}
-      </div>
-      <div className="mt-2 flex shrink-0 justify-between gap-1 text-[10px] text-slate-500 sm:mt-3 sm:text-[11px]">
-        <span>Low</span>
-        <span />
-        <span>Mid</span>
-        <span />
-        <span>High</span>
-      </div>
+          <YAxis
+            dataKey="count"
+            width={44}
+            allowDecimals={false}
+            domain={[0, (dataMax: number) => Math.max(dataMax * 1.15, 1)]}
+            tickFormatter={(v: number) => v.toLocaleString("en-US")}
+            tick={{ fontSize: 11, fill: "#6B7280" }}
+            tickLine={false}
+            axisLine={{ stroke: "#E5E7EB" }}
+            label={{
+              value: "Frequency (count)",
+              angle: -90,
+              position: "insideLeft",
+              offset: 4,
+              fill: "#64748B",
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          />
+          <Tooltip
+            cursor={{ fill: "rgba(13, 148, 136, 0.08)" }}
+            content={<ResidualDistributionTooltip />}
+          />
+          <Bar
+            dataKey="count"
+            name="Count"
+            fill="#0D9488"
+            radius={[4, 4, 0, 0]}
+            isAnimationActive={false}
+          >
+            <LabelList
+              dataKey="count"
+              position="top"
+              formatter={(v: number) => (v > 0 ? String(v) : "")}
+              className="fill-slate-600 text-[10px] font-semibold"
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 };
@@ -541,7 +657,7 @@ const PlaceholderPanel: React.FC<PlaceholderPanelProps> = ({
           <HeatmapChart heatmap={heatmap} />
         ) : (
           <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
-            <PlaceholderChart residuals={residuals} />
+            <ResidualDistributionChart residuals={residuals} />
           </div>
         )}
       </div>
