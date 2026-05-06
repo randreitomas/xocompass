@@ -285,14 +285,6 @@ const ValidationGraph: React.FC<{
               <span className="h-2 w-2 rounded-full bg-teal-600" />
               Forecasted
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-              Upper CI
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-              Lower CI
-            </span>
           </div>
         </div>
       </div>
@@ -1029,23 +1021,6 @@ export const AdvancedMetrics: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">What This Means</h3>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
-            {advancedMetrics == null ? (
-              <li className="list-none text-slate-500">—</li>
-            ) : validationSummary.length > 0 ? (
-              validationSummary.map((summary, idx) => (
-                <li key={`${idx}-${summary.slice(0, 48)}`}>{summary}</li>
-              ))
-            ) : (
-              <li className="list-none text-slate-500">
-                No statistical test conclusion strings were included in the API response.
-              </li>
-            )}
-          </ul>
         </div>
       </section>
     </div>

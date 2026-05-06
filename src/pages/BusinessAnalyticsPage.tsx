@@ -523,7 +523,6 @@ export const BusinessAnalyticsPage: React.FC<BusinessAnalyticsPageProps> = ({
         count: businessAnalytics.data_quality.total_rows,
         descriptiveOnly: true,
       },
-      { label: "Duplicate Rows", count: businessAnalytics.data_quality.duplicate_rows },
       { label: "Missing Route", count: businessAnalytics.data_quality.missing_route },
       { label: "Missing Airline", count: businessAnalytics.data_quality.missing_airline },
       {

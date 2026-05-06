@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CalendarRange,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Clock3,
   TrendingUp,
@@ -31,6 +33,8 @@ type ForecastOutlookResponse = components["schemas"]["ForecastOutlookResponse"];
 type ForecastGraphResponse = components["schemas"]["ForecastGraphResponse"];
 type StrategicActionsResponse = components["schemas"]["StrategicActionsResponse"];
 type ModelDropdownItem = components["schemas"]["ModelDropdownItem"];
+type CriticalForecastWeek = components["schemas"]["CriticalForecastWeek"];
+type ForecastGraphPoint = components["schemas"]["ForecastGraphPoint"];
 
 interface MetricsRouteState {
   selectedModelId?: number;
@@ -41,9 +45,12 @@ interface ForecastActionsProps {
   isBackgroundPreview?: boolean;
 }
 
-/** Maps backend risk_flag strings (e.g. HIGH/MEDIUM/LOW) to UI sentence-case labels. */
-const normalizeRiskFactorLabel = (risk: string): "High" | "Medium" | "Low" => {
+type RiskFactorLabel = "Critical" | "High" | "Medium" | "Low";
+
+/** Maps backend risk_flag strings (e.g. HIGH/MEDIUM/LOW/CRITICAL) to UI sentence-case labels. */
+const normalizeRiskFactorLabel = (risk: string): RiskFactorLabel => {
   const upper = risk.trim().toUpperCase();
+  if (upper === "CRITICAL") return "Critical";
   if (upper === "HIGH") return "High";
   if (upper === "LOW") return "Low";
   return "Medium";
@@ -70,8 +77,80 @@ interface RiskWeekRow {
   week: string;
   horizonStatus: CriticalWeekHorizonLabel;
   forecastedVolume: number;
-  riskFactor: "High" | "Medium" | "Low";
+  ciRatio: number | null;
+  ciGap: number | null;
+  riskFactor: RiskFactorLabel;
 }
+
+const readNumericField = (row: ForecastGraphPoint, keys: string[]): number | null => {
+  const record = row as Record<string, unknown>;
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string") {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+};
+
+const readStringField = (row: ForecastGraphPoint, keys: string[]): string | null => {
+  const record = row as Record<string, unknown>;
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "string" && raw.trim().length > 0) return raw.trim();
+  }
+  return null;
+};
+
+const findMatchingCriticalWeekGraphPoint = (
+  week: CriticalForecastWeek,
+  graphRows: ForecastGraphPoint[]
+): ForecastGraphPoint | null => {
+  const startKey = normalizeGraphDateKey(week.week_start);
+  const endKey = normalizeGraphDateKey(week.week_end ?? week.week_start);
+
+  const exactStart = graphRows.find((row) => normalizeGraphDateKey(row.date) === startKey);
+  if (exactStart) return exactStart;
+
+  const exactEnd = graphRows.find((row) => normalizeGraphDateKey(row.date) === endKey);
+  if (exactEnd) return exactEnd;
+
+  const weekEndIso = week.week_end ?? week.week_start;
+  const overlapping = graphRows.filter((row) =>
+    weekIntervalsOverlap(week.week_start, weekEndIso, row.date)
+  );
+  if (overlapping.length === 0) return null;
+
+  const forwardOverlap = overlapping.find((row) => row.actual == null && row.predicted != null);
+  return forwardOverlap ?? overlapping[0];
+};
+
+const deriveCriticalWeekBackendMetrics = (
+  week: CriticalForecastWeek,
+  graphRows: ForecastGraphPoint[]
+): { ciRatio: number | null; ciGap: number | null; riskFactor: RiskFactorLabel | null } => {
+  const matchedRow = findMatchingCriticalWeekGraphPoint(week, graphRows);
+  if (!matchedRow) {
+    return { ciRatio: null, ciGap: null, riskFactor: null };
+  }
+
+  const ciRatio = readNumericField(matchedRow, ["ci_ratio", "ciRatio"]);
+  const ciGap = readNumericField(matchedRow, ["ci_gap", "ciGap"]);
+  const riskFactorRaw = readStringField(matchedRow, [
+    "risk_factor",
+    "riskFactor",
+    "confidence_tier",
+  ]);
+  const riskFactor = riskFactorRaw ? normalizeRiskFactorLabel(riskFactorRaw) : null;
+
+  return {
+    ciRatio: ciRatio != null && Number.isFinite(ciRatio) ? Number(ciRatio.toFixed(2)) : null,
+    ciGap: ciGap != null && Number.isFinite(ciGap) ? Number(ciGap.toFixed(2)) : null,
+    riskFactor,
+  };
+};
 
 const normalizeGraphDateKey = (iso: string): string => {
   const d = new Date(iso);
@@ -111,7 +190,8 @@ const classifyCriticalWeekHorizon = (
   const nearCap = Math.min(nearForecastHorizonWeeks, forwardRows.length);
 
   const startKey = normalizeGraphDateKey(week.week_start);
-  const endKey = normalizeGraphDateKey(week.week_end);
+  const weekEndIso = week.week_end ?? week.week_start;
+  const endKey = normalizeGraphDateKey(weekEndIso);
 
   for (const row of histSlice) {
     const k = normalizeGraphDateKey(row.date);
@@ -125,12 +205,12 @@ const classifyCriticalWeekHorizon = (
   }
 
   for (const row of histSlice) {
-    if (weekIntervalsOverlap(week.week_start, week.week_end, row.date)) {
+    if (weekIntervalsOverlap(week.week_start, weekEndIso, row.date)) {
       return "Forecast History";
     }
   }
   for (let i = 0; i < forwardRows.length; i++) {
-    if (weekIntervalsOverlap(week.week_start, week.week_end, forwardRows[i].date)) {
+    if (weekIntervalsOverlap(week.week_start, weekEndIso, forwardRows[i].date)) {
       return i < nearCap ? "Forecasted 2 Weeks" : "Forecasted Beyond 2 Weeks";
     }
   }
@@ -510,14 +590,6 @@ const WeeklyDemandChart: React.FC<{
               <span className="h-2 w-2 rounded-full bg-amber-500" />
               Lower confidence (beyond weather window)
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-              Upper CI
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-              <span className="h-[2px] w-3 border-t-2 border-dashed border-teal-500" />
-              Lower CI
-            </span>
           </div>
         </div>
       </div>
@@ -564,6 +636,14 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   const [models, setModels] = useState<ModelDropdownItem[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [flippedKpis, setFlippedKpis] = useState<Record<string, boolean>>({});
+  const [expandedRiskLegends, setExpandedRiskLegends] = useState<
+    Record<RiskFactorLabel, boolean>
+  >({
+    Low: false,
+    Medium: false,
+    High: false,
+    Critical: false,
+  });
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -682,25 +762,32 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
   const riskWeeksAll: RiskWeekRow[] = useMemo(() => {
     const critical = criticalWeeksRaw ?? [];
     const graphRows = forecastGraph?.data ?? [];
-    return critical.map((week) => ({
-      week: `${new Date(week.week_start).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })} – ${new Date(week.week_end).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })}`,
-      horizonStatus: classifyCriticalWeekHorizon(
-        week,
-        graphRows,
-        historicalHorizonWeeks,
-        nearForecastHorizonWeeks
-      ),
-      forecastedVolume: week.forecasted_volume,
-      riskFactor: normalizeRiskFactorLabel(week.risk_factor),
-    }));
+    return critical.map((week) => {
+      const forecastedVolume = week.forecasted_volume;
+      const backendMetrics = deriveCriticalWeekBackendMetrics(week, graphRows);
+      return {
+        riskFactor:
+          backendMetrics.riskFactor ?? normalizeRiskFactorLabel(week.risk_factor),
+        week: `${new Date(week.week_start).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })} – ${new Date(week.week_end ?? week.week_start).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}`,
+        horizonStatus: classifyCriticalWeekHorizon(
+          week,
+          graphRows,
+          historicalHorizonWeeks,
+          nearForecastHorizonWeeks
+        ),
+        forecastedVolume,
+        ciRatio: backendMetrics.ciRatio,
+        ciGap: backendMetrics.ciGap,
+      };
+    });
   }, [
     criticalWeeksRaw,
     forecastGraph?.data,
@@ -775,47 +862,90 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
 
   const demandSeries = demandSeriesBundle.series;
 
-  const actionableInsights = useMemo(() => {
-    const backendActions = strategicActions?.actions ?? [];
-    if (backendActions.length > 0) {
-      const lines = backendActions.map((item) => item.action.trim()).filter(Boolean);
-      return [...new Set(lines)];
-    }
+  const riskLegendItems: Array<{
+    id: RiskFactorLabel;
+    title: "Critical CI Gap" | "High CI Gap" | "Medium CI Gap" | "Low CI Gap";
+    insight: string;
+    details: string[];
+    badgeClass: string;
+  }> = useMemo(
+    () => [
+      {
+        id: "Low",
+        title: "Low CI Gap",
+        insight:
+          "This week's forecast is relatively stable, so use it for routine weekly planning.",
+        details: [
+          "Use the forecasted booking count as the main reference for this week's routine planning.",
+          "Track actual bookings against forecast on the normal review schedule.",
+          "Keep standard turnaround for quotations, confirmations, and follow-ups.",
+          "No special escalation is needed unless actual bookings start moving outside the usual range.",
+          "This is the best tier for using forecast figures in weekly status reporting.",
+        ],
+        badgeClass: "bg-emerald-100 text-emerald-700",
+      },
+      {
+        id: "Medium",
+        title: "Medium CI Gap",
+        insight:
+          "This week's forecast is usable, but monitor actual bookings before making small adjustments.",
+        details: [
+          "Use the forecast as a guide, but recheck actual bookings before making small planning adjustments.",
+          "Review booking movement at least once before the week begins and again during the week.",
+          "Watch whether bookings are building faster or slower than expected.",
+          "Prepare for minor deviation from the forecasted count without treating it as a planning issue yet.",
+          "Use this tier for closer observation, not for strong intervention.",
+        ],
+        badgeClass: "bg-amber-100 text-amber-700",
+      },
+      {
+        id: "High",
+        title: "High CI Gap",
+        insight:
+          "This week is more uncertain than usual, so keep plans flexible and avoid depending on the exact forecast count.",
+        details: [
+          "Do not rely on the exact forecasted volume alone when planning this week.",
+          "Compare actual bookings against forecast more frequently than usual.",
+          "Keep booking-related plans adjustable in case demand moves above or below the displayed forecast.",
+          "Delay firm assumptions based only on the point forecast until more actual bookings are observed.",
+          "Treat this week as a higher-attention period in monitoring and internal review.",
+        ],
+        badgeClass: "bg-red-100 text-red-700",
+      },
+      {
+        id: "Critical",
+        title: "Critical CI Gap",
+        insight:
+          "This week has very high uncertainty, so treat the forecast as directional only and confirm with real incoming bookings before making firm decisions.",
+        details: [
+          "Treat the forecast as directional only, not as a firm expected count.",
+          "Verify actual incoming bookings first before making commitment-sensitive decisions.",
+          "Recheck booking movement as close to the week as possible instead of relying on the forecast early.",
+          "Avoid locking plans too tightly around the displayed number because uncertainty is highest here.",
+          "Escalate this week for active review if actual bookings begin diverging further from forecast expectations.",
+        ],
+        badgeClass: "bg-fuchsia-100 text-fuchsia-700",
+      },
+    ],
+    []
+  );
 
-    const insights: string[] = [];
-    const highRiskCount = riskWeeks.filter((week) => week.riskFactor === "High").length;
-    const mediumRiskCount = riskWeeks.filter((week) => week.riskFactor === "Medium").length;
-    if (highRiskCount > 0) {
-      insights.push(
-        `Allocate surge capacity for ${highRiskCount} high-risk week${highRiskCount > 1 ? "s" : ""} to prevent booking spillover.`
-      );
-    }
-    if (mediumRiskCount > 0) {
-      insights.push(
-        `Launch targeted promos and staffing adjustments for ${mediumRiskCount} medium-risk week${mediumRiskCount > 1 ? "s" : ""}.`
-      );
-    }
-    const criticalVolumes = riskWeeks.map((week) => week.forecastedVolume);
-    if (criticalVolumes.length >= 2) {
-      const first = criticalVolumes[0];
-      const last = criticalVolumes[criticalVolumes.length - 1];
-      if (last > first) {
-        insights.push(
-          "Demand trend is rising across critical forecast weeks; increase seat allocation and support coverage."
-        );
-      } else if (last < first) {
-        insights.push(
-          "Demand trend is softening across critical forecast weeks; prioritize margin optimization and route-level efficiency."
-        );
-      }
-    }
-    if (insights.length === 0) {
-      insights.push(
-        "No strategic actions were returned for this forecast snapshot."
-      );
-    }
-    return insights;
-  }, [riskWeeks, strategicActions?.actions]);
+  const toggleRiskLegend = (risk: RiskFactorLabel) => {
+    setExpandedRiskLegends((prev) => ({ ...prev, [risk]: !prev[risk] }));
+  };
+  const areAllRiskLegendsExpanded = useMemo(
+    () => Object.values(expandedRiskLegends).every(Boolean),
+    [expandedRiskLegends]
+  );
+  const toggleAllRiskLegends = () => {
+    const nextValue = !areAllRiskLegendsExpanded;
+    setExpandedRiskLegends({
+      Low: nextValue,
+      Medium: nextValue,
+      High: nextValue,
+      Critical: nextValue,
+    });
+  };
   const toggleKpiCard = (cardId: string) => {
     setFlippedKpis((prev) => ({ ...prev, [cardId]: !prev[cardId] }));
   };
@@ -990,7 +1120,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                 </div>
               </section>
 
-              <section className="grid gap-4 lg:grid-cols-2">
+              <section className="grid gap-4">
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h3 className="text-sm font-semibold text-slate-900">
                     Critical Forecast Weeks
@@ -1000,20 +1130,30 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                     the demand chart regions for the next two weeks or beyond (backtest history rows
                     are excluded here).
                   </p>
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+                      <colgroup>
+                        <col className="w-[34%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[14%]" />
+                        <col className="w-[14%]" />
+                        <col className="w-[20%]" />
+                      </colgroup>
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-left font-semibold text-slate-600">
+                          <th className="px-5 py-3 text-left font-semibold text-slate-600">
                             Week
                           </th>
-                          <th className="px-4 py-2 text-left font-semibold text-slate-600">
-                            Status
-                          </th>
-                          <th className="px-4 py-2 text-left font-semibold text-slate-600">
+                          <th className="bg-teal-50 px-5 py-3 text-center font-semibold text-teal-800">
                             Forecasted Volume
                           </th>
-                          <th className="px-4 py-2 text-left font-semibold text-slate-600">
+                          <th className="px-5 py-3 text-center font-semibold text-slate-600">
+                            CI Ratio
+                          </th>
+                          <th className="px-5 py-3 text-center font-semibold text-slate-600">
+                            CI Gap
+                          </th>
+                          <th className="px-5 py-3 text-center font-semibold text-slate-600">
                             Risk Factor
                           </th>
                         </tr>
@@ -1022,7 +1162,7 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                         {riskWeeks.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={4}
+                              colSpan={5}
                               className="px-4 py-6 text-center text-slate-500"
                             >
                               {(criticalWeeksRaw?.length ?? 0) === 0
@@ -1033,23 +1173,24 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                         ) : null}
                         {riskWeeks.map((row, rowIndex) => (
                           <tr key={`${row.week}-${rowIndex}`}>
-                            <td className="px-4 py-2 text-slate-700">{row.week}</td>
-                            <td className="px-4 py-2">
-                              <span
-                                className={`inline-block max-w-[14rem] rounded-full px-2 py-1 text-xs font-semibold ${horizonStatusBadgeClass(
-                                  row.horizonStatus
-                                )}`}
-                              >
-                                {row.horizonStatus}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-slate-700">
+                            <td className="px-5 py-3 text-slate-700">{row.week}</td>
+                            <td className="bg-teal-50 px-5 py-3 text-center text-base font-bold text-teal-900 tabular-nums">
                               {row.forecastedVolume.toLocaleString("en-US")}
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="px-5 py-3 text-center text-slate-700 tabular-nums whitespace-nowrap">
+                              {row.ciRatio != null ? row.ciRatio.toLocaleString("en-US") : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-center text-slate-700 tabular-nums whitespace-nowrap">
+                              {row.ciGap != null
+                                ? `${row.ciGap.toLocaleString("en-US")}`
+                                : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-center whitespace-nowrap">
                               <span
                                 className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                                  row.riskFactor === "High"
+                                  row.riskFactor === "Critical"
+                                    ? "bg-fuchsia-100 text-fuchsia-700"
+                                    : row.riskFactor === "High"
                                     ? "bg-red-100 text-red-700"
                                     : row.riskFactor === "Medium"
                                       ? "bg-amber-100 text-amber-700"
@@ -1069,17 +1210,70 @@ export const ForecastActions: React.FC<ForecastActionsProps> = ({
                   <h3 className="text-sm font-semibold text-slate-900">
                     Actionable Insights
                   </h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Recommended actions based on demand trend and critical weeks.
-                  </p>
-                  <ul className="mt-4 space-y-3">
-                    {actionableInsights.map((insight) => (
-                      <li key={insight} className="flex items-start gap-2.5 text-sm text-slate-700">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
-                        <span>{insight}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-slate-500">
+                      Click each CI gap level to view detailed planning actions.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={toggleAllRiskLegends}
+                      className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      {areAllRiskLegendsExpanded ? "Collapse all" : "Show all"}
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {riskLegendItems.map((legendItem) => {
+                      const isExpanded = Boolean(expandedRiskLegends[legendItem.id]);
+                      return (
+                        <div
+                          key={legendItem.id}
+                          className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleRiskLegend(legendItem.id)}
+                            className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+                            aria-expanded={isExpanded}
+                            aria-controls={`risk-legend-${legendItem.id}`}
+                          >
+                            <div className="space-y-1">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${legendItem.badgeClass}`}
+                              >
+                                {legendItem.title}
+                              </span>
+                              <p className="text-sm text-slate-700">
+                                <span className="font-semibold text-slate-900">Insight: </span>
+                                {legendItem.insight}
+                              </p>
+                            </div>
+                            {isExpanded ? (
+                              <ChevronUp className="mt-1 h-4 w-4 shrink-0 text-slate-500" />
+                            ) : (
+                              <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-slate-500" />
+                            )}
+                          </button>
+                          {isExpanded ? (
+                            <ul
+                              id={`risk-legend-${legendItem.id}`}
+                              className="space-y-2 border-t border-slate-200 bg-white px-4 py-3"
+                            >
+                              {legendItem.details.map((detail) => (
+                                <li
+                                  key={`${legendItem.id}-${detail}`}
+                                  className="flex items-start gap-2.5 text-sm text-slate-700"
+                                >
+                                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
+                                  <span>{detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </section>
             </>
