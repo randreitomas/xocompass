@@ -26,14 +26,14 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle: _pageTitle }) => {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="mr-2 mt-0.5 flex items-center gap-4">
         {canManageSaves(role) ? (
           <button
             type="button"
             onClick={handleViewSaves}
-            className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+            className="inline-flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
           >
-            <Save className="h-4 w-4" />
+            <Save className="mt-[1px] h-5 w-4" />
             <span>View Saves</span>
           </button>
         ) : null}
